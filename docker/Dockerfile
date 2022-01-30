@@ -15,7 +15,6 @@ RUN apt-get -y install\
  cpp-doc\
  gcc-doc\
  g++\
- g++-multilib\
  gdb\
  gdb-doc\
  glibc-doc\
@@ -31,6 +30,11 @@ RUN apt-get -y install\
  clang\
  clang-10-doc\
  lldb
+
+# install cross-compiler
+RUN apt-get -y install\
+ g++-x86-64-linux-gnu\
+ gdb-multiarch
 
 # install qemu for WeensyOS (sadly, this pulls in a lot of crap)
 RUN apt-get -y install\
