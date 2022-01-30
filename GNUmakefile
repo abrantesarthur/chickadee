@@ -1,4 +1,3 @@
-QEMUIMAGEFILES = chickadeeboot.img chickadeefs.img
 all: $(QEMUIMAGEFILES)
 
 # Place local configuration options, such as `CC=clang`, in
@@ -214,6 +213,8 @@ QEMUIMG = -M q35 \
 	-drive file=chickadeefs.img,if=none,format=raw,id=maindisk \
 	-device ide-hd,drive=maindisk,bus=ide.0
 
+run-docker-env:
+	docker run -it --rm -v ~/Documents/harvard/cs-161-s22-problem-sets-abrantesarthur:/home/cs61-user/chickadee cs61:latest
 run: run-$(QEMUDISPLAY)
 	@:
 run-gdb-report:
