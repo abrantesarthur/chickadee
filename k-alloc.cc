@@ -4,14 +4,13 @@
 static spinlock page_lock;
 static uintptr_t next_free_pa;
 
-
 // init_kalloc
 //    Initialize stuff needed by `kalloc`. Called from `init_hardware`,
 //    after `physical_ranges` is initialized.
-void init_kalloc() {
+void init_kalloc()
+{
     // do nothing for now
 }
-
 
 // kalloc(sz)
 //    Allocate and return a pointer to at least `sz` contiguous bytes of
@@ -26,23 +25,29 @@ void init_kalloc() {
 //
 //    The handout code does not free memory and allocates memory in units
 //    of pages.
-void* kalloc(size_t sz) {
-    if (sz == 0 || sz > PAGESIZE) {
+void *kalloc(size_t sz)
+{
+    if (sz == 0 || sz > PAGESIZE)
+    {
         return nullptr;
     }
 
     auto irqs = page_lock.lock();
-    void* ptr = nullptr;
+    void *ptr = nullptr;
 
     // skip over reserved and kernel memory
     auto range = physical_ranges.find(next_free_pa);
-    while (range != physical_ranges.end()) {
-        if (range->type() == mem_available) {
+    while (range != physical_ranges.end())
+    {
+        if (range->type() == mem_available)
+        {
             // use this page
-            ptr = pa2kptr<void*>(next_free_pa);
+            ptr = pa2kptr<void *>(next_free_pa);
             next_free_pa += PAGESIZE;
             break;
-        } else {
+        }
+        else
+        {
             // move to next range
             next_free_pa = range->last();
             ++range;
@@ -51,7 +56,8 @@ void* kalloc(size_t sz) {
 
     page_lock.unlock(irqs);
 
-    if (ptr) {
+    if (ptr)
+    {
         // tell sanitizers the allocated page is accessible
         asan_mark_memory(ka2pa(ptr), PAGESIZE, false);
         // initialize to `int3`
@@ -60,55 +66,67 @@ void* kalloc(size_t sz) {
     return ptr;
 }
 
-
 // kfree(ptr)
 //    Free a pointer previously returned by `kalloc`. Does nothing if
 //    `ptr == nullptr`.
-void kfree(void* ptr) {
-    if (ptr) {
+void kfree(void *ptr)
+{
+    if (ptr)
+    {
         // tell sanitizers the freed page is inaccessible
         asan_mark_memory(ka2pa(ptr), PAGESIZE, true);
     }
     log_printf("kfree not implemented yet\n");
 }
 
-
 // operator new, operator delete
 //    Expressions like `new (std::nothrow) T(...)` and `delete x` work,
 //    and call kalloc/kfree.
-void* operator new(size_t sz, const std::nothrow_t&) noexcept {
+void *operator new(size_t sz, const std::nothrow_t &) noexcept
+{
     return kalloc(sz);
 }
-void* operator new(size_t sz, std::align_val_t, const std::nothrow_t&) noexcept {
+void *operator new(size_t sz, std::align_val_t, const std::nothrow_t &) noexcept
+{
     return kalloc(sz);
 }
-void* operator new[](size_t sz, const std::nothrow_t&) noexcept {
+void *operator new[](size_t sz, const std::nothrow_t &) noexcept
+{
     return kalloc(sz);
 }
-void* operator new[](size_t sz, std::align_val_t, const std::nothrow_t&) noexcept {
+void *operator new[](size_t sz, std::align_val_t, const std::nothrow_t &) noexcept
+{
     return kalloc(sz);
 }
-void operator delete(void* ptr) noexcept {
+void operator delete(void *ptr)noexcept
+{
     kfree(ptr);
 }
-void operator delete(void* ptr, size_t) noexcept {
+void operator delete(void *ptr, size_t)noexcept
+{
     kfree(ptr);
 }
-void operator delete(void* ptr, std::align_val_t) noexcept {
+void operator delete(void *ptr, std::align_val_t)noexcept
+{
     kfree(ptr);
 }
-void operator delete(void* ptr, size_t, std::align_val_t) noexcept {
+void operator delete(void *ptr, size_t, std::align_val_t)noexcept
+{
     kfree(ptr);
 }
-void operator delete[](void* ptr) noexcept {
+void operator delete[](void *ptr) noexcept
+{
     kfree(ptr);
 }
-void operator delete[](void* ptr, size_t) noexcept {
+void operator delete[](void *ptr, size_t) noexcept
+{
     kfree(ptr);
 }
-void operator delete[](void* ptr, std::align_val_t) noexcept {
+void operator delete[](void *ptr, std::align_val_t) noexcept
+{
     kfree(ptr);
 }
-void operator delete[](void* ptr, size_t, std::align_val_t) noexcept {
+void operator delete[](void *ptr, size_t, std::align_val_t) noexcept
+{
     kfree(ptr);
 }
