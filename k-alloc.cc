@@ -38,8 +38,6 @@ void *kalloc(size_t sz)
     // skip over reserved and kernel memory
     for (; next_free_pa < physical_ranges.limit(); next_free_pa += PAGESIZE)
     {
-        count++;
-
         if (physical_ranges.type(next_free_pa) == mem_available)
         {
             ptr = pa2kptr<void *>(next_free_pa);

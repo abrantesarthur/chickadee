@@ -135,6 +135,15 @@ void memusage::refresh()
             p->unlock_pagetable_read(irqs);
         }
     }
+
+    for (int cpuid = 0; cpuid < ncpu; cpuid++)
+    {
+        if (cpus[cpuid].idle_task_)
+        {
+            mark(ka2pa(cpus[cpuid].idle_task_), f_kernel);
+        }
+    }
+    mark(ka2pa(v_), f_kernel);
 }
 
 void memusage::page_error(uintptr_t pa, const char *desc, int pid) const

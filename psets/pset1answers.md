@@ -22,7 +22,6 @@ for (; next_free_pa < physical_ranges.limit(); next_free_pa += PAGESIZE) {
       next_free_pa += PAGESIZE;
       break;
    }
-`
 ```
 
 7. The loop using `find()` requires less iterations to find `available_memory` than the loop using `type`. Whereas `find()` skips an entire range of potentially multiple `PAGE_SIZE` of unavailable memory, `type()` only skips a single `PAGE_SIZE`. Quantitatively speaking, at worse `find()` required 4 loop iterations, whereas `type()` required 1048064.
@@ -35,8 +34,19 @@ for (; next_free_pa < physical_ranges.limit(); next_free_pa += PAGESIZE) {
 2. `mark(ka2pa(p), f_kernel | f_process(pid))`
 3. The `ptiter` and `vmiter` iterators mark pages differently because they deal with pages with different types of restriction. Whereas pages marked by `ptiter` are physical addresses of page tables, which should be accessed only by the kernel, those marked by `vmiter` are physical addresses of user-accessible virtual memory pages. If the pages marked by `ptiter` could be accessed by users, then user-level programs would be able to access page tables and, consequently, read and modify code from other programs.
 4. All pages marked by the `pid` loop have type `mem_available` because only pages of this type can be `kalloc`'ed and all pages that `ptiter` and `vmiter` go through in the loop were `kalloc`'ed. For instance, the pages `ptiter` goes through were allocated in `boot_process_start()`.
-5.
-6.
-7.
+5. Nothing different happens, since both `it += PAGESIZE` and `it.next()` move to a virtual address in the next page.
+6. The pages that `memusage::refres()` missed are located in the addresses 0x1000 and 0x11000, which refer to `idle_task_` of the two CPUs, and 0x12000, which refers to the `v_` matrix.
+7. We add the following loop to `memusage::refresh()`
+
+```
+for (int cpuid = 0; cpuid < ncpu; cpuid++)
+{
+   if (cpus[cpuid].idle_task_)
+   {
+      mark(ka2pa(cpus[cpuid].idle_task_), f_kernel);
+   }
+}
+mark(ka2pa(v_), f_kernel);
+```
 
 ## Grading notes
