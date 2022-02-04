@@ -31,9 +31,9 @@ for (; next_free_pa < physical_ranges.limit(); next_free_pa += PAGESIZE) {
 
 ##### B. Memory Viewer
 
-1.
-2.
-3.
+1. `mark(pa, f_kernel)`
+2. `mark(ka2pa(p), f_kernel | f_process(pid))`
+3. The `ptiter` and `vmiter` iterators mark pages differently because they deal with pages with different types of restriction. Whereas pages marked by `ptiter` are physical addresses of page tables, which should be accessed only by the kernel, those marked by `vmiter` are physical addresses of user-accessible virtual memory pages. If the pages marked by `ptiter` could be accessed by users, then user-level programs would be able to access page tables and, consequently, read and modify code from other programs.
 4.
 5.
 6.
