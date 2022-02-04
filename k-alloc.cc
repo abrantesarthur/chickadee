@@ -36,9 +36,6 @@ void *kalloc(size_t sz)
     void *ptr = nullptr;
 
     // skip over reserved and kernel memory
-    auto range = physical_ranges.find(next_free_pa);
-    auto count = 0;
-
     for (; next_free_pa < physical_ranges.limit(); next_free_pa += PAGESIZE)
     {
         count++;
@@ -50,8 +47,6 @@ void *kalloc(size_t sz)
             break;
         }
     }
-
-    log_printf("count: %d\n", count);
 
     page_lock.unlock(irqs);
 
