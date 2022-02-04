@@ -34,7 +34,7 @@ for (; next_free_pa < physical_ranges.limit(); next_free_pa += PAGESIZE) {
 1. `mark(pa, f_kernel)`
 2. `mark(ka2pa(p), f_kernel | f_process(pid))`
 3. The `ptiter` and `vmiter` iterators mark pages differently because they deal with pages with different types of restriction. Whereas pages marked by `ptiter` are physical addresses of page tables, which should be accessed only by the kernel, those marked by `vmiter` are physical addresses of user-accessible virtual memory pages. If the pages marked by `ptiter` could be accessed by users, then user-level programs would be able to access page tables and, consequently, read and modify code from other programs.
-4.
+4. All pages marked by the `pid` loop have type `mem_available` because only pages of this type can be `kalloc`'ed and all pages that `ptiter` and `vmiter` go through in the loop were `kalloc`'ed. For instance, the pages `ptiter` goes through were allocated in `boot_process_start()`.
 5.
 6.
 7.
