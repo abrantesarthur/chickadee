@@ -36,21 +36,13 @@ void *kalloc(size_t sz)
     void *ptr = nullptr;
 
     // skip over reserved and kernel memory
-    auto range = physical_ranges.find(next_free_pa);
-    while (range != physical_ranges.end())
+    for (; next_free_pa < physical_ranges.limit(); next_free_pa += PAGESIZE)
     {
-        if (range->type() == mem_available)
+        if (physical_ranges.type(next_free_pa) == mem_available)
         {
-            // use this page
             ptr = pa2kptr<void *>(next_free_pa);
             next_free_pa += PAGESIZE;
             break;
-        }
-        else
-        {
-            // move to next range
-            next_free_pa = range->last();
-            ++range;
         }
     }
 
