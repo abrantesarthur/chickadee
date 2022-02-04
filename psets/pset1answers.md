@@ -25,7 +25,8 @@ for (; next_free_pa < physical_ranges.limit(); next_free_pa += PAGESIZE) {
 `
 ```
 
-7.
+7. The loop using `find()` requires less iterations to find `available_memory` than the loop using `type`. Whereas `find()` skips an entire range of potentially multiple `PAGE_SIZE` of unavailable memory, `type()` only skips a single `PAGE_SIZE`. Quantitatively speaking, at worse `find()` required 4 loop iterations, whereas `type()` required 1048064.
+
 8.
 
 ##### B. Memory Viewer

@@ -1,5 +1,5 @@
 #include "u-lib.hh"
-#define ALLOC_SLOWDOWN 24
+#define ALLOC_SLOWDOWN 1
 
 extern uint8_t end[];
 
@@ -42,7 +42,7 @@ void process_main()
         sys_yield();
         if (rand() < RAND_MAX / 32)
         {
-            sys_pause();
+            // sys_pause();
         }
     }
 
