@@ -15,7 +15,12 @@
         "unordered_map": "cpp",
         "unordered_set": "cpp",
         "vector": "cpp",
-        "random": "cpp"
+        "random": "cpp",
+        "__config": "cpp",
+        "__string": "cpp",
+        "memory_resource": "cpp",
+        "memory": "cpp",
+        "new": "cpp"
     },
     "C_Cpp.errorSquiggles": "Disabled"
 }

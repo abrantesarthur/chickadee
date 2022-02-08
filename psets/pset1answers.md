@@ -49,4 +49,14 @@ for (int cpuid = 0; cpuid < ncpu; cpuid++)
 mark(ka2pa(v_), f_kernel);
 ```
 
+##### C. Entry Points
+
+1. Entry point 1: `kernel_start()`. This gets called right after the bootloader loads the kernel and sets the stack.
+2. Entry point 2: `proc::exception(regstate* regs)`. It gets called after an exception happens and there is a potential context switch from user to kernel mode (if the exception happend in user mode).
+3. Entry point 3: `proc::syscall(regstate* regs)`. It gets called when the user code makes a system call, thus triggerign a context switch into the kernel.
+4. Entry point 4: `cpus[my_CPU_number].init_ap()`. It gets called when we are initializing a cpu.
+5. Entry point 5: `cpustate::schedule()`. It gets called when a process yields the core to another process.
+6. Entry point 6: `void idle()`. It gets called by the scheduler when the cpu has no other process to run.
+7. Entry point 7: `void boot()`. It gets called during the booting process.
+
 ## Grading notes
