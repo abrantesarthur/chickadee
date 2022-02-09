@@ -6,8 +6,7 @@ extern uint8_t end[];
 uint8_t *heap_top;
 uint8_t *stack_bottom;
 
-void process_main()
-{
+void process_main() {
     sys_consoletype(CONSOLE_MEMVIEWER);
 
     // Fork three new copies. (But ignore failures.)
@@ -28,27 +27,27 @@ void process_main()
     stack_bottom = reinterpret_cast<uint8_t *>(
         round_down(rdrsp() - 1, PAGESIZE));
 
-    while (true)
-    {
-        if (rand(0, ALLOC_SLOWDOWN - 1) < p)
-        {
-            if (heap_top == stack_bottom || sys_page_alloc(heap_top) < 0)
-            {
+    while (true) {
+        if (rand(0, ALLOC_SLOWDOWN - 1) < p) {
+            if (heap_top == stack_bottom || sys_page_alloc(heap_top) < 0) {
                 break;
             }
             *heap_top = p; /* check we have write access to new page */
             heap_top += PAGESIZE;
         }
         sys_yield();
-        if (rand() < RAND_MAX / 32)
-        {
-            // sys_pause();
+        if (rand() < RAND_MAX / 32) {
+            sys_pause();
         }
     }
 
+    sys_map_console(console);
+    for (int i = 0; i < CONSOLE_ROWS * CONSOLE_COLUMNS; ++i) {
+        console[i] = "C" | 0xA000;
+    }
+
     // After running out of memory, do nothing forever
-    while (true)
-    {
+    while (true) {
         sys_yield();
     }
 }
