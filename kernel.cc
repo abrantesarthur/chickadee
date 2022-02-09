@@ -242,6 +242,7 @@ uintptr_t proc::syscall(regstate* regs) {
 
 // proc::syscall_fork(regs)
 //    Handle fork system call.
+// TODO: use goto statements for cleaner deallocation (see lecture 6)
 int proc::syscall_fork(regstate* regs) {
     proc* p;
     pid_t child_pid;
@@ -273,7 +274,7 @@ int proc::syscall_fork(regstate* regs) {
         // allocate pagetable for the process
         x86_64_pagetable* pagetable = kalloc_pagetable();
         if (!pagetable) {
-            kfree(p);
+            kfree_proc(p);
             ptable[child_pid] = nullptr;
             return E_NOMEM;
         }
@@ -289,7 +290,6 @@ int proc::syscall_fork(regstate* regs) {
 
                 // map page's physical address to a virtual address
                 if (!new_page || vmiter(p, it.va()).try_map(new_page, it.perm()) != 0) {
-                    kfree(p);
                     ptable[child_pid] = nullptr;
                     kfree(pagetable);
                     kfree(new_page);

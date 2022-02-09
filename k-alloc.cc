@@ -73,12 +73,15 @@ void kfree(void *ptr)
 }
 
 // kfree_proc(p)
-//    Free the user-accessible memory of a process
+//    Free the user-accessible memory of a process and the process itself
 void kfree_proc(proc *p) {
-    for (vmiter it(p, 0); it.low(); it.next()) {
-        if (it.user()) {
-            it.kfree_page();
+    if(p) {
+        for (vmiter it(p, 0); it.low(); it.next()) {
+            if (it.user()) {
+                it.kfree_page();
+            }
         }
+        kfree(p);
     }
 }
 
