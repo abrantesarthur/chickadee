@@ -246,15 +246,14 @@ int proc::syscall_fork(regstate* regs) {
     proc* p;
     pid_t child_pid;
 
-    // set new process
     {
         // requires lock, in case another process is also forking, for instance
         spinlock_guard guard(ptable_lock);
         pid_t i;
-        // look for pid
+        // look for available pid
         for (i = 1; i < NPROC; ++i) {
             if (!ptable[i]) {
-                child_PID = i;
+                child_pid = i;
                 break;
             }
         }
@@ -269,7 +268,7 @@ int proc::syscall_fork(regstate* regs) {
         if (!p) {
             return E_NOMEM;
         }
-        ptable[child_PID] = p;
+        ptable[child_pid] = p;
     }
 
     // allocate pagetable for the process
@@ -283,10 +282,9 @@ int proc::syscall_fork(regstate* regs) {
     // initialize process
     p->init_user(child_pid, pagetable);
 
-    // copy the parent process' user memory
+    // copy the parent process' user-accessible memory
     {
         spinlock_guard guard(ptable_lock);
-        // track address of allocated pages to avoid potential memory leak
         for (vmiter it(this, 0); it.low(); it.next()) {
             if (it.user()) {
                 void* new_page = kalloc(PAGESIZE);
@@ -294,6 +292,12 @@ int proc::syscall_fork(regstate* regs) {
                     kfree(p);
                     ptable[child_pid] = nullptr;
                     kfree(pagetable);
+                    // free child's pages allocated on previous iterations
+                    for (vmiter it_(p, 0); it_.low(); it_.next()) {
+                        if (it_.present()) {
+                            kfree(it_.kptr());
+                        }
+                    }
                     return E_NOMEM;
                 }
                 // copy parent's page
@@ -304,8 +308,14 @@ int proc::syscall_fork(regstate* regs) {
                     ptable[child_pid] = nullptr;
                     kfree(pagetable);
                     kfree(new_page);
-                    // TODO: free new_page allocated on previous loops
-                    return E_NOMEM
+                    // free child's pages allocated on previous iterations
+                    for (vmiter it_(p, 0); it_.low(); it_.next()) {
+                        if (it_.present()) {
+                            kfree(it_.kptr());
+                        }
+                    }
+
+                    return E_NOMEM;
                 }
             }
         }
