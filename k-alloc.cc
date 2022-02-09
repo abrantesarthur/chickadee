@@ -1,4 +1,5 @@
 #include "kernel.hh"
+#include "k-vmiter.hh"
 #include "k-lock.hh"
 
 static spinlock page_lock;
@@ -69,6 +70,16 @@ void kfree(void *ptr)
         asan_mark_memory(ka2pa(ptr), PAGESIZE, true);
     }
     log_printf("kfree not implemented yet\n");
+}
+
+// kfree_proc(p)
+//    Free the user-accessible memory of a process
+void kfree_proc(proc *p) {
+    for (vmiter it(p, 0); it.low(); it.next()) {
+        if (it.user()) {
+            it.kfree_page();
+        }
+    }
 }
 
 // operator new, operator delete

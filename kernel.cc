@@ -287,36 +287,21 @@ int proc::syscall_fork(regstate* regs) {
         spinlock_guard guard(ptable_lock);
         for (vmiter it(this, 0); it.low(); it.next()) {
             if (it.user()) {
+                // allocate new page
                 void* new_page = kalloc(PAGESIZE);
-                if (!new_page) {
-                    kfree(p);
-                    ptable[child_pid] = nullptr;
-                    kfree(pagetable);
-                    // free child's pages allocated on previous iterations
-                    for (vmiter it_(p, 0); it_.low(); it_.next()) {
-                        if (it_.present()) {
-                            kfree(it_.kptr());
-                        }
-                    }
-                    return E_NOMEM;
-                }
-                // copy parent's page
-                memcpy(new_page, reinterpret_cast<void*>(it.va()), PAGESIZE);
-                // create child's page virtual to physical mapping
-                if (vmiter(p, it.va()).try_map(new_page, it.perm()) != 0) {
+
+                // map page's physical address to a virtual address
+                if (!new_page || vmiter(p, it.va()).try_map(new_page, it.perm()) != 0) {
                     kfree(p);
                     ptable[child_pid] = nullptr;
                     kfree(pagetable);
                     kfree(new_page);
-                    // free child's pages allocated on previous iterations
-                    for (vmiter it_(p, 0); it_.low(); it_.next()) {
-                        if (it_.present()) {
-                            kfree(it_.kptr());
-                        }
-                    }
-
+                    kfree_proc(p);
                     return E_NOMEM;
                 }
+
+                // copy parent's page
+                memcpy(new_page, reinterpret_cast<void*>(it.va()), PAGESIZE);
             }
         }
 

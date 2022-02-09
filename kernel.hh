@@ -311,6 +311,10 @@ void* kalloc(size_t sz) __attribute__((malloc));
 //    `ptr == nullptr`.
 void kfree(void* ptr);
 
+// kfree_proc(p)
+//    Free user-accessible memory of process 'p'
+void kfree_proc(proc* p);
+
 // operator new, operator delete
 //    Expressions like `new (std::nothrow) T(...)` and `delete x` work,
 //    and call kalloc/kfree.
