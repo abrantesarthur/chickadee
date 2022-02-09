@@ -1,4 +1,5 @@
 #include "kernel.hh"
+
 #include "k-ahci.hh"
 #include "k-apic.hh"
 #include "k-chkfs.hh"
@@ -16,7 +17,6 @@ std::atomic<unsigned long> ticks;
 
 static void tick();
 static void boot_process_start(pid_t pid, const char* program_name);
-
 
 // kernel_start(command)
 //    Initialize the hardware and processes and start running. The `command`
@@ -38,7 +38,6 @@ void kernel_start(const char* command) {
     // start running processes
     cpus[0].schedule(nullptr);
 }
-
 
 // boot_process_start(pid, name)
 //    Load application program `name` as process number `pid`.
@@ -75,7 +74,6 @@ void boot_process_start(pid_t pid, const char* name) {
     cpus[pid % ncpu].enqueue(p);
 }
 
-
 // proc::exception(reg)
 //    Exception handler (for interrupts, traps, and faults).
 //
@@ -88,7 +86,7 @@ void boot_process_start(pid_t pid, const char* name) {
 void proc::exception(regstate* regs) {
     // It can be useful to log events using `log_printf`.
     // Events logged this way are stored in the host's `log.txt` file.
-    //log_printf("proc %d: exception %d @%p\n", id_, regs->reg_intno, regs->reg_rip);
+    // log_printf("proc %d: exception %d @%p\n", id_, regs->reg_intno, regs->reg_rip);
 
     // Record most recent user-mode %rip.
     if ((regs->reg_cs & 3) != 0) {
@@ -98,59 +96,57 @@ void proc::exception(regstate* regs) {
     // Show the current cursor location.
     consolestate::get().cursor();
 
-
     // Actually handle the exception.
     switch (regs->reg_intno) {
-
-    case INT_IRQ + IRQ_TIMER: {
-        cpustate* cpu = this_cpu();
-        if (cpu->cpuindex_ == 0) {
-            tick();
-        }
-        lapicstate::get().ack();
-        regs_ = regs;
-        yield_noreturn();
-        break;                  /* will not be reached */
-    }
-
-    case INT_PF: {              // pagefault exception
-        // Analyze faulting address and access type.
-        uintptr_t addr = rdcr2();
-        const char* operation = regs->reg_errcode & PFERR_WRITE
-                ? "write" : "read";
-        const char* problem = regs->reg_errcode & PFERR_PRESENT
-                ? "protection problem" : "missing page";
-
-        if ((regs->reg_cs & 3) == 0) {
-            panic_at(*regs, "Kernel page fault for %p (%s %s)!\n",
-                     addr, operation, problem);
+        case INT_IRQ + IRQ_TIMER: {
+            cpustate* cpu = this_cpu();
+            if (cpu->cpuindex_ == 0) {
+                tick();
+            }
+            lapicstate::get().ack();
+            regs_ = regs;
+            yield_noreturn();
+            break; /* will not be reached */
         }
 
-        error_printf(CPOS(24, 0), 0x0C00,
-                     "Process %d page fault for %p (%s %s, rip=%p)!\n",
-                     id_, addr, operation, problem, regs->reg_rip);
-        pstate_ = proc::ps_faulted;
-        yield();
-        break;
-    }
+        case INT_PF: {  // pagefault exception
+            // Analyze faulting address and access type.
+            uintptr_t addr = rdcr2();
+            const char* operation = regs->reg_errcode & PFERR_WRITE
+                                        ? "write"
+                                        : "read";
+            const char* problem = regs->reg_errcode & PFERR_PRESENT
+                                      ? "protection problem"
+                                      : "missing page";
 
-    case INT_IRQ + IRQ_KEYBOARD:
-        keyboardstate::get().handle_interrupt();
-        break;
+            if ((regs->reg_cs & 3) == 0) {
+                panic_at(*regs, "Kernel page fault for %p (%s %s)!\n",
+                         addr, operation, problem);
+            }
 
-    default:
-        if (sata_disk && regs->reg_intno == INT_IRQ + sata_disk->irq_) {
-            sata_disk->handle_interrupt();
-        } else {
-            panic_at(*regs, "Unexpected exception %d!\n", regs->reg_intno);
+            error_printf(CPOS(24, 0), 0x0C00,
+                         "Process %d page fault for %p (%s %s, rip=%p)!\n",
+                         id_, addr, operation, problem, regs->reg_rip);
+            pstate_ = proc::ps_faulted;
+            yield();
+            break;
         }
-        break;                  /* will not be reached */
 
+        case INT_IRQ + IRQ_KEYBOARD:
+            keyboardstate::get().handle_interrupt();
+            break;
+
+        default:
+            if (sata_disk && regs->reg_intno == INT_IRQ + sata_disk->irq_) {
+                sata_disk->handle_interrupt();
+            } else {
+                panic_at(*regs, "Unexpected exception %d!\n", regs->reg_intno);
+            }
+            break; /* will not be reached */
     }
 
     // return to interrupted context
 }
-
 
 // proc::syscall(regs)
 //    System call handler.
@@ -160,91 +156,97 @@ void proc::exception(regstate* regs) {
 //    process in `%rax`.
 
 uintptr_t proc::syscall(regstate* regs) {
-    //log_printf("proc %d: syscall %ld @%p\n", id_, regs->reg_rax, regs->reg_rip);
+    // log_printf("proc %d: syscall %ld @%p\n", id_, regs->reg_rax, regs->reg_rip);
 
     // Record most recent user-mode %rip.
     recent_user_rip_ = regs->reg_rip;
 
     switch (regs->reg_rax) {
+        case SYSCALL_CONSOLETYPE:
+            if (consoletype != (int)regs->reg_rdi) {
+                console_clear();
+            }
+            consoletype = regs->reg_rdi;
+            return 0;
 
-    case SYSCALL_CONSOLETYPE:
-        if (consoletype != (int) regs->reg_rdi) {
-            console_clear();
+        case SYSCALL_PANIC:
+            panic_at(*regs, "process %d called sys_panic()", id_);
+            break;  // will not be reached
+
+        case SYSCALL_GETPID:
+            return id_;
+
+        case SYSCALL_YIELD:
+            yield();
+            return 0;
+
+        case SYSCALL_PAGE_ALLOC: {
+            uintptr_t addr = regs->reg_rdi;
+            if (addr >= VA_LOWEND || addr & 0xFFF) {
+                return -1;
+            }
+            void* pg = kalloc(PAGESIZE);
+            if (!pg || vmiter(this, addr).try_map(ka2pa(pg), PTE_PWU) < 0) {
+                return -1;
+            }
+            return 0;
         }
-        consoletype = regs->reg_rdi;
-        return 0;
 
-    case SYSCALL_PANIC:
-        panic_at(*regs, "process %d called sys_panic()", id_);
-        break;                  // will not be reached
-
-    case SYSCALL_GETPID:
-        return id_;
-
-    case SYSCALL_YIELD:
-        yield();
-        return 0;
-
-    case SYSCALL_PAGE_ALLOC: {
-        uintptr_t addr = regs->reg_rdi;
-        if (addr >= VA_LOWEND || addr & 0xFFF) {
-            return -1;
+        case SYSCALL_PAUSE: {
+            sti();
+            for (uintptr_t delay = 0; delay < 1000000; ++delay) {
+                pause();
+            }
+            return 0;
         }
-        void* pg = kalloc(PAGESIZE);
-        if (!pg || vmiter(this, addr).try_map(ka2pa(pg), PTE_PWU) < 0) {
-            return -1;
+
+        case SYSCALL_MAP_CONSOLE: {
+            uintptr_t addr = regs->reg_rdi;
+            // verify that addr is low-canonical and page aligned
+            if (addr > VA_LOWMAX || addr & 0xFFF) {
+                return E_INVAL;
+            }
+            // the console is at physical address CONSOLE_ADDR
+            return vmiter(this, addr).try_map(CONSOLE_ADDR, PTW_PWU);
         }
-        return 0;
-    }
 
-    case SYSCALL_PAUSE: {
-        sti();
-        for (uintptr_t delay = 0; delay < 1000000; ++delay) {
-            pause();
+        case SYSCALL_FORK:
+            return syscall_fork(regs);
+
+        case SYSCALL_READ:
+            return syscall_read(regs);
+
+        case SYSCALL_WRITE:
+            return syscall_write(regs);
+
+        case SYSCALL_READDISKFILE:
+            return syscall_readdiskfile(regs);
+
+        case SYSCALL_SYNC: {
+            int drop = regs->reg_rdi;
+            // `drop > 1` asserts that no data blocks are referenced (except
+            // possibly superblock and FBB blocks). This can only be ensured on
+            // tests that run as the first process.
+            if (drop > 1 && strncmp(CHICKADEE_FIRST_PROCESS, "test", 4) != 0) {
+                drop = 1;
+            }
+            return bufcache::get().sync(drop);
         }
-        return 0;
-    }
 
-    case SYSCALL_FORK:
-        return syscall_fork(regs);
-
-    case SYSCALL_READ:
-        return syscall_read(regs);
-
-    case SYSCALL_WRITE:
-        return syscall_write(regs);
-
-    case SYSCALL_READDISKFILE:
-        return syscall_readdiskfile(regs);
-
-    case SYSCALL_SYNC: {
-        int drop = regs->reg_rdi;
-        // `drop > 1` asserts that no data blocks are referenced (except
-        // possibly superblock and FBB blocks). This can only be ensured on
-        // tests that run as the first process.
-        if (drop > 1 && strncmp(CHICKADEE_FIRST_PROCESS, "test", 4) != 0) {
-            drop = 1;
-        }
-        return bufcache::get().sync(drop);
-    }
-
-    default:
-        // no such system call
-        log_printf("%d: no such system call %u\n", id_, regs->reg_rax);
-        return E_NOSYS;
-
+        default:
+            // no such system call
+            log_printf("%d: no such system call %u\n", id_, regs->reg_rax);
+            return E_NOSYS;
     }
 }
-
 
 // proc::syscall_fork(regs)
 //    Handle fork system call.
 
 int proc::syscall_fork(regstate* regs) {
-    (void) regs;
+    (void)regs;
     return E_NOSYS;
 }
-
 
 // proc::syscall_read(regs), proc::syscall_write(regs),
 // proc::syscall_readdiskfile(regs)
@@ -349,9 +351,9 @@ uintptr_t proc::syscall_readdiskfile(regstate* regs) {
         if (bcentry* e = it.find(off).get_disk_entry()) {
             unsigned b = it.block_relative_offset();
             size_t ncopy = min(
-                size_t(ino->size - it.offset()),   // bytes left in file
-                chkfs::blocksize - b,              // bytes left in block
-                sz - nread                         // bytes left in request
+                size_t(ino->size - it.offset()),  // bytes left in file
+                chkfs::blocksize - b,             // bytes left in block
+                sz - nread                        // bytes left in request
             );
             memcpy(buf + nread, e->buf_ + b, ncopy);
             e->put();
@@ -370,7 +372,6 @@ uintptr_t proc::syscall_readdiskfile(regstate* regs) {
     ino->put();
     return nread;
 }
-
 
 // memshow()
 //    Draw a picture of memory (physical and virtual) on the CGA console.
@@ -397,22 +398,19 @@ static void memshow() {
     spinlock_guard guard(ptable_lock);
 
     int search = 0;
-    while ((!ptable[showing]
-            || !ptable[showing]->pagetable_
-            || ptable[showing]->pagetable_ == early_pagetable)
-           && search < NPROC) {
+    while ((!ptable[showing] || !ptable[showing]->pagetable_ || ptable[showing]->pagetable_ == early_pagetable) && search < NPROC) {
         showing = (showing + 1) % NPROC;
         ++search;
     }
 
     console_memviewer(ptable[showing]);
     if (!ptable[showing]) {
-        console_printf(CPOS(10, 26), 0x0F00, "   VIRTUAL ADDRESS SPACE\n"
-            "                          [All processes have exited]\n"
-            "\n\n\n\n\n\n\n\n\n\n\n");
+        console_printf(CPOS(10, 26), 0x0F00,
+                       "   VIRTUAL ADDRESS SPACE\n"
+                       "                          [All processes have exited]\n"
+                       "\n\n\n\n\n\n\n\n\n\n\n");
     }
 }
-
 
 // tick()
 //    Called once every tick (0.01 sec, 1/HZ) by CPU 0. Updates the `ticks`
