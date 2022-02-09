@@ -247,7 +247,7 @@ int proc::syscall_fork(regstate* regs) {
     pid_t child_pid;
 
     {
-        // requires lock, in case another process is also forking, for instance
+        // requires lock to access ptable
         spinlock_guard guard(ptable_lock);
         pid_t i;
         // look for available pid
@@ -269,22 +269,19 @@ int proc::syscall_fork(regstate* regs) {
             return E_NOMEM;
         }
         ptable[child_pid] = p;
-    }
 
-    // allocate pagetable for the process
-    x86_64_pagetable* pagetable = kalloc_pagetable();
-    if (!pagetable) {
-        kfree(p);
-        ptable[child_pid] = nullptr;
-        return E_NOMEM;
-    }
+        // allocate pagetable for the process
+        x86_64_pagetable* pagetable = kalloc_pagetable();
+        if (!pagetable) {
+            kfree(p);
+            ptable[child_pid] = nullptr;
+            return E_NOMEM;
+        }
 
-    // initialize process
-    p->init_user(child_pid, pagetable);
+        // initialize process
+        p->init_user(child_pid, pagetable);
 
-    // copy the parent process' user-accessible memory
-    {
-        spinlock_guard guard(ptable_lock);
+        // copy the parent process' user-accessible memory
         for (vmiter it(this, 0); it.low(); it.next()) {
             if (it.user()) {
                 // allocate new page
