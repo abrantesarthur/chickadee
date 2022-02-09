@@ -243,6 +243,7 @@ uintptr_t proc::syscall(regstate* regs) {
 // proc::syscall_fork(regs)
 //    Handle fork system call.
 // TODO: use goto statements for cleaner deallocation (see lecture 6)
+// TODO: should I use page_lock to protect memory allocation data
 int proc::syscall_fork(regstate* regs) {
     proc* p;
     pid_t child_pid;
