@@ -242,16 +242,16 @@ uintptr_t proc::syscall(regstate* regs) {
 
 // proc::syscall_fork(regs)
 //    Handle fork system call.
-
 int proc::syscall_fork(regstate* regs) {
     proc* p;
     pid_t child_pid;
 
-    // lock ptable to access it safely
+    // set new process
     {
+        // requires lock, in case another process is also forking, for instance
         spinlock_guard guard(ptable_lock);
         pid_t i;
-        // look for available pid
+        // look for pid
         for (i = 1; i < NPROC; ++i) {
             if (!ptable[i]) {
                 child_PID = i;
@@ -264,7 +264,7 @@ int proc::syscall_fork(regstate* regs) {
             return E_NOMEM;
         }
 
-        // allocate struct proc and assign it to found pid
+        // allocate process and assign found pid to it
         p = knew<proc>();
         if (!p) {
             return E_NOMEM;
@@ -275,8 +275,8 @@ int proc::syscall_fork(regstate* regs) {
     // allocate pagetable for the process
     x86_64_pagetable* pagetable = kalloc_pagetable();
     if (!pagetable) {
-        // free allocated memory
         kfree(p);
+        ptable[child_pid] = nullptr;
         return E_NOMEM;
     }
 
@@ -286,21 +286,25 @@ int proc::syscall_fork(regstate* regs) {
     // copy the parent process' user memory
     {
         spinlock_guard guard(ptable_lock);
+        // track address of allocated pages to avoid potential memory leak
         for (vmiter it(this, 0); it.low(); it.next()) {
             if (it.user()) {
                 void* new_page = kalloc(PAGESIZE);
                 if (!new_page) {
                     kfree(p);
+                    ptable[child_pid] = nullptr;
                     kfree(pagetable);
                     return E_NOMEM;
                 }
                 // copy parent's page
                 memcpy(new_page, reinterpret_cast<void*>(it.va()), PAGESIZE);
                 // create child's page virtual to physical mapping
-                if (vmiter(p, it.va()).try_map(page, it.perm()) != 0) {
+                if (vmiter(p, it.va()).try_map(new_page, it.perm()) != 0) {
                     kfree(p);
+                    ptable[child_pid] = nullptr;
                     kfree(pagetable);
                     kfree(new_page);
+                    // TODO: free new_page allocated on previous loops
                     return E_NOMEM
                 }
             }
