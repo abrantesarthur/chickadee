@@ -244,8 +244,79 @@ uintptr_t proc::syscall(regstate* regs) {
 //    Handle fork system call.
 
 int proc::syscall_fork(regstate* regs) {
-    (void)regs;
-    return E_NOSYS;
+    proc* p;
+    pid_t child_pid;
+
+    // lock ptable to access it safely
+    {
+        spinlock_guard guard(ptable_lock);
+        pid_t i;
+        // look for available pid
+        for (i = 1; i < NPROC; ++i) {
+            if (!ptable[i]) {
+                child_PID = i;
+                break;
+            }
+        }
+
+        // return error if out of pids
+        if (i == NPROC) {
+            return E_NOMEM;
+        }
+
+        // allocate struct proc and assign it to found pid
+        p = knew<proc>();
+        if (!p) {
+            return E_NOMEM;
+        }
+        ptable[child_PID] = p;
+    }
+
+    // allocate pagetable for the process
+    x86_64_pagetable* pagetable = kalloc_pagetable();
+    if (!pagetable) {
+        // free allocated memory
+        kfree(p);
+        return E_NOMEM;
+    }
+
+    // initialize process
+    p->init_user(child_pid, pagetable);
+
+    // copy the parent process' user memory
+    {
+        spinlock_guard guard(ptable_lock);
+        for (vmiter it(this, 0); it.low(); it.next()) {
+            if (it.user()) {
+                void* new_page = kalloc(PAGESIZE);
+                if (!new_page) {
+                    kfree(p);
+                    kfree(pagetable);
+                    return E_NOMEM;
+                }
+                // copy parent's page
+                memcpy(new_page, reinterpret_cast<void*>(it.va()), PAGESIZE);
+                // create child's page virtual to physical mapping
+                if (vmiter(p, it.va()).try_map(page, it.perm()) != 0) {
+                    kfree(p);
+                    kfree(pagetable);
+                    kfree(new_page);
+                    return E_NOMEM
+                }
+            }
+        }
+
+        // copy parent's register state
+        memcpy(reinterpret_cast<void*>(p->regs_), reinterpret_cast<void*>(regs), sizeof(regstate));
+
+        // set %rax so 0 gets returned to child
+        p->regs_->reg_rax = 0;
+
+        // add child to a cpu
+        cpus[child_pid % ncpu].enqueue(p);
+    }
+
+    return child_pid;
 }
 
 // proc::syscall_read(regs), proc::syscall_write(regs),
