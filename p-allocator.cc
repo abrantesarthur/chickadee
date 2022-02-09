@@ -43,7 +43,7 @@ void process_main() {
 
     sys_map_console(console);
     for (int i = 0; i < CONSOLE_ROWS * CONSOLE_COLUMNS; ++i) {
-        console[i] = "C" | 0xA000;
+        console[i] = '*' | 0x5000;
     }
 
     // After running out of memory, do nothing forever
