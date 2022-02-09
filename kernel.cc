@@ -207,7 +207,7 @@ uintptr_t proc::syscall(regstate* regs) {
                 return E_INVAL;
             }
             // the console is at physical address CONSOLE_ADDR
-            return vmiter(this, addr).try_map(CONSOLE_ADDR, PTW_PWU);
+            return vmiter(this, addr).try_map(CONSOLE_ADDR, PTE_PWU);
         }
 
         case SYSCALL_FORK:
