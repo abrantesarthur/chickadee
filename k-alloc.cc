@@ -31,6 +31,7 @@ struct blocktable {
         block* get_block(uintptr_t addr, int order);
         // TODO: can I make this a block method?
         block* get_parent(block* b);
+        block* get_buddy(block* b);
 
         // get address of buddy of block at address 'addr'
         // TODO: make it return uintptr_t.
@@ -78,6 +79,11 @@ block* blocktable::get_block(uintptr_t addr) {
     return get_block(addr, pages[addr / PAGESIZE].order);
 }
 
+// TODO: this should be a method of block
+block* blocktable::get_buddy(block* b) {
+    return get_block(b->buddy_addr_, b->order_);
+}
+
 block* blocktable::get_block(uintptr_t addr, int order) {
     assert(order >= MIN_ORDER && order <= MAX_ORDER);
 
@@ -104,12 +110,6 @@ int blocktable::get_buddy_addr(int order, uintptr_t addr) {
     uintptr_t offset = (1 << (order - MIN_ORDER)) * PAGESIZE;
     return (i % 2 == 0) ? addr + offset : addr - offset;
 }
-
-
-// lists of free blocks per order
-// list<block, &block::link_> free_blocks[ORDER_COUNT];
-// keep track of all physical memory
-// page pages[PAGES_COUNT];
 
 ////////////////////////////////////////////////////////////////////////////
 
@@ -178,7 +178,7 @@ void init_kalloc() {
             // mark block as free and with order 12
             pages[pa / PAGESIZE].free = true;
             pages[pa / PAGESIZE].order = MIN_ORDER;
-            // TODO: because of how get_block works, this order is important
+            // TODO: because of how get_block works, this order could be important
             free_blocks[0].push_back(btable.get_block(pa));
         } 
     }
@@ -222,7 +222,8 @@ void* kalloc(size_t sz) {
         // find free block with order o > order, minimizing o.
         for(int o = order + 1; o < MAX_ORDER; o++) {
             // if found a block
-            if((blk = free_blocks[o - MIN_ORDER].pop_front())) {
+            blk = free_blocks[o - MIN_ORDER].pop_front();
+            if(blk) {
                 break;
             }
         }
@@ -239,7 +240,7 @@ void* kalloc(size_t sz) {
             left_blk = btable.get_block(blk->first_, o - 1);
             right_blk = btable.get_block(left_blk->buddy_addr_, o - 1);  
 
-            // fix order of blocks if necessary
+            // swap blocks if necessary
             if (left_blk->index_ % 2 != 0) {  
                 block* tmp_blk = left_blk;
                 left_blk = right_blk;
@@ -247,6 +248,7 @@ void* kalloc(size_t sz) {
             }
 
             //update pages orders
+            // TODO: should I not update all pages within that block
             pages[left_blk->first_ / PAGESIZE].order = o - 1;
             pages[right_blk->first_ / PAGESIZE].order = o - 1;
 
@@ -257,7 +259,7 @@ void* kalloc(size_t sz) {
     
         //use this block
         ptr = pa2kptr<void*>(blk->first_);
-     }
+    }
 
     // set block's free status to false
     for (uintptr_t addr = blk->first_; addr < blk->last_; addr += PAGESIZE) {
@@ -270,6 +272,7 @@ void* kalloc(size_t sz) {
         // initialize to `int3` | NOT SURE
         memset(ptr, 0xCC, (1 << order)); 
     }
+
     return ptr;
 }
 
@@ -284,31 +287,37 @@ void kfree(void* ptr) {
     }
 
     // convert to physical address
-    uintptr_t block_addr = ka2pa(ptr);
+    uintptr_t block_pa = ka2pa(ptr);
 
     // prevent freeing reserved memory
-    if(physical_ranges.type(block_addr) != mem_available) {
+    if(physical_ranges.type(block_pa) != mem_available) {
         return;
     }
 
     // tell sanitizers the freed page is inaccessible
-    asan_mark_memory(ka2pa(ptr), PAGESIZE, true);
+    asan_mark_memory(block_pa, PAGESIZE, true);
     
-    // let o be the order of the freed block.
-    int order = pages[block_addr / PAGESIZE].order;
 
     // get block
-    block* blk = btable.get_block(block_addr, order);
+    int order = pages[block_pa / PAGESIZE].order;
+    block* blk = btable.get_block(block_pa, order);
 
-    // update pages, setting block's pages to free
+    // free pages within that block
     for(uintptr_t addr = blk->first_; addr < blk->last_; addr+=PAGESIZE){
+        // assert that pages within the block have the same order and are notfree
+        assert(pages[addr / PAGESIZE].free == false);
+        assert(pages[addr / PAGESIZE].order == order);
+
+        // free pages
         pages[addr / PAGESIZE].free = true;
     }
+
+    // TODO: should I not also add it to free_list?
 
     // try merging the block
     // try_merge() checks whether the freed block’s order-o buddy is also completely free
     // If it is, merge recursively coalesces them into a single free block of order o + 1.
-    return try_merge(block_addr);
+    return try_merge(block_pa);
 }
 
 // kfree_proc(p)
