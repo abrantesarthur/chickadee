@@ -248,8 +248,8 @@ void* kalloc(size_t sz) {
             }
 
             //update pages orders
-            pages[left_blk->first_ /PAGESIZE].order = o - 1;
-            pages[right_blk->first_ /PAGESIZE].order = o - 1;
+            pages[left_blk->first_ / PAGESIZE].order = o - 1;
+            pages[right_blk->first_ / PAGESIZE].order = o - 1;
 
             //update free_blocks
             free_blocks[o - MIN_ORDER - 1].push_back(right_blk);
@@ -299,7 +299,10 @@ void kfree(void* ptr) {
     int order = pages[block_addr / PAGESIZE].order;
 
     // get block
+    block* test = btable.get_block(block_addr, order);
     block* blk = &btable.t_[order - MIN_ORDER][btable.block_number(order, block_addr)];
+    assert(test->first_ == blk->first_);
+    assert(test->last_ == blk->last_);
 
     // update pages, setting block's pages to free
     for(uintptr_t addr = blk->first_; addr < blk->last_; addr+=PAGESIZE){
