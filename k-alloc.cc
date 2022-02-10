@@ -19,7 +19,6 @@ struct block {
         int order_;                 // order of this block
         int index_;                 // the index of this block
         list_links link_;
-        block* get_parent(block* b);
 };
 
 struct blocktable {
@@ -47,8 +46,8 @@ struct page {
 
 // declare datastructure that keeps track of blocks of a given order
 blocktable btable;
-// declare a free_list of block structures, each linked by their link_ member
-list<block, &block::link_> free_list[ORDER_COUNT];
+// declare a free_blocks of block structures, each linked by their link_ member
+list<block, &block::link_> free_blocks[ORDER_COUNT];
 page pages[PAGES_COUNT];
 
 void blocktable::init() {
@@ -87,6 +86,7 @@ block* blocktable::get_block(uintptr_t addr) {
     return &t_[o - MIN_ORDER][i];
 }
 
+// TODO: make this a method of block*
 block* blocktable::get_parent(block* b) {
     block* buddy = get_block(b->buddy_addr_);
     int p_order = b->order_ + 1;
@@ -141,12 +141,12 @@ void merge(uintptr_t block_addr) {
     // create new block to be pushed
     block* parent_blk = btable.get_parent(blk);
 
-    // remove block and buddy from free_list of order
-    free_list[blk->order_ - MIN_ORDER].erase(blk);
-    free_list[blk->order_ - MIN_ORDER].erase(buddy);
+    // remove block and buddy from free_blocks of order
+    free_blocks[blk->order_ - MIN_ORDER].erase(blk);
+    free_blocks[blk->order_ - MIN_ORDER].erase(buddy);
 
-    // push new block to free_list entry of order + 1
-    free_list[blk->order_ + 1 - MIN_ORDER].push_back(parent_blk);
+    // push new block to free_blocks entry of order + 1
+    free_blocks[blk->order_ + 1 - MIN_ORDER].push_back(parent_blk);
 
     //update pages
     for(uintptr_t addr = blk->first_; addr < blk->last_; addr+=PAGESIZE) {
@@ -167,11 +167,12 @@ void init_kalloc() {
     btable.init();
 
     //Initialize free list's first order column and pages
+    // TODO: make this a method of pages or free_blocks
     auto irqs = page_lock.lock();
     for(uintptr_t pa = 0; pa < physical_ranges.limit(); pa += PAGESIZE) {
         if(physical_ranges.type(pa) == mem_available) {
-            //add block to free_list[0]
-            free_list[0].push_back(&btable.t_[0][pa / PAGESIZE]);
+            //add block to free_blocks[0]
+            free_blocks[0].push_back(&btable.t_[0][pa / PAGESIZE]);
             // mark block as free and with order 12
             pages[pa / PAGESIZE].free = true;
             pages[pa / PAGESIZE].order = MIN_ORDER;
@@ -210,7 +211,7 @@ void* kalloc(size_t sz) {
     void* ptr = nullptr;
 
     // find a free block with desired order 
-    block* blk = free_list[order - MIN_ORDER].pop_front();
+    block* blk = free_blocks[order - MIN_ORDER].pop_front();
     if (blk) {
         //use this block
         ptr = pa2kptr<void*>(blk->first_);
@@ -221,7 +222,7 @@ void* kalloc(size_t sz) {
         // find free block with order o > order, minimizing o.
         for(int o = order + 1; o < MAX_ORDER; o++) {
             // if found a block
-            if((blk = free_list[o - MIN_ORDER].pop_front())) {
+            if((blk = free_blocks[o - MIN_ORDER].pop_front())) {
                 break;
             }
         }
@@ -246,8 +247,8 @@ void* kalloc(size_t sz) {
             pages[first_blk->first_ /PAGESIZE].order = o - 1;
             pages[second_blk->first_ /PAGESIZE].order = o - 1;
 
-            //update free_list
-            free_list[o - MIN_ORDER - 1].push_back(second_blk);
+            //update free_blocks
+            free_blocks[o - MIN_ORDER - 1].push_back(second_blk);
             blk = first_blk;
         }
     
