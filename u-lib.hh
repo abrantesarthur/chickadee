@@ -15,39 +15,39 @@
 
 __always_inline uintptr_t make_syscall(int syscallno) {
     register uintptr_t rax asm("rax") = syscallno;
-    asm volatile("syscall"
-                 : "+a"(rax)
-                 : /* all input registers are also output registers */
-                 : "cc", "rcx", "rdx", "rsi", "rdi", "r8", "r9", "r10", "r11");
+    asm volatile ("syscall"
+            : "+a" (rax)
+            : /* all input registers are also output registers */
+            : "cc", "rcx", "rdx", "rsi", "rdi", "r8", "r9", "r10", "r11");
     return rax;
 }
 
 __always_inline uintptr_t make_syscall(int syscallno, uintptr_t arg0) {
     register uintptr_t rax asm("rax") = syscallno;
-    asm volatile("syscall"
-                 : "+a"(rax), "+D"(arg0)
-                 :
-                 : "cc", "rcx", "rdx", "rsi", "r8", "r9", "r10", "r11");
+    asm volatile ("syscall"
+            : "+a" (rax), "+D" (arg0)
+            :
+            : "cc", "rcx", "rdx", "rsi", "r8", "r9", "r10", "r11");
     return rax;
 }
 
 __always_inline uintptr_t make_syscall(int syscallno, uintptr_t arg0,
                                        uintptr_t arg1) {
     register uintptr_t rax asm("rax") = syscallno;
-    asm volatile("syscall"
-                 : "+a"(rax), "+D"(arg0), "+S"(arg1)
-                 :
-                 : "cc", "rcx", "rdx", "r8", "r9", "r10", "r11");
+    asm volatile ("syscall"
+            : "+a" (rax), "+D" (arg0), "+S" (arg1)
+            :
+            : "cc", "rcx", "rdx", "r8", "r9", "r10", "r11");
     return rax;
 }
 
 __always_inline uintptr_t make_syscall(int syscallno, uintptr_t arg0,
                                        uintptr_t arg1, uintptr_t arg2) {
     register uintptr_t rax asm("rax") = syscallno;
-    asm volatile("syscall"
-                 : "+a"(rax), "+D"(arg0), "+S"(arg1), "+d"(arg2)
-                 :
-                 : "cc", "rcx", "r8", "r9", "r10", "r11");
+    asm volatile ("syscall"
+            : "+a" (rax), "+D" (arg0), "+S" (arg1), "+d" (arg2)
+            :
+            : "cc", "rcx", "r8", "r9", "r10", "r11");
     return rax;
 }
 
@@ -56,23 +56,21 @@ __always_inline uintptr_t make_syscall(int syscallno, uintptr_t arg0,
                                        uintptr_t arg3) {
     register uintptr_t rax asm("rax") = syscallno;
     register uintptr_t r10 asm("r10") = arg3;
-    asm volatile("syscall"
-                 : "+a"(rax), "+D"(arg0), "+S"(arg1), "+d"(arg2), "+r"(r10)
-                 :
-                 : "cc", "rcx", "r8", "r9", "r11");
+    asm volatile ("syscall"
+            : "+a" (rax), "+D" (arg0), "+S" (arg1), "+d" (arg2), "+r" (r10)
+            :
+            : "cc", "rcx", "r8", "r9", "r11");
     return rax;
 }
 
-__always_inline void clobber_memory(void *ptr) {
-    asm volatile(""
-                 : "+m"(*(char *)ptr));
+__always_inline void clobber_memory(void* ptr) {
+    asm volatile ("" : "+m" (*(char*) ptr));
 }
 
-__always_inline void access_memory(const void *ptr) {
-    asm volatile(""
-                 :
-                 : "m"(*(const char *)ptr));
+__always_inline void access_memory(const void* ptr) {
+    asm volatile ("" : : "m" (*(const char*) ptr));
 }
+
 
 // sys_getpid
 //    Return current process ID.
@@ -102,7 +100,7 @@ inline int sys_consoletype(int type) {
 
 // sys_panic(msg)
 //    Panic.
-[[noreturn]] inline void sys_panic(const char *msg) {
+[[noreturn]] inline void sys_panic(const char* msg) {
     make_syscall(SYSCALL_PANIC, reinterpret_cast<uintptr_t>(msg));
     while (true) {
     }
@@ -112,7 +110,7 @@ inline int sys_consoletype(int type) {
 //    Allocate a page of memory at address `addr`. `Addr` must be page-aligned
 //    (i.e., a multiple of PAGESIZE == 4096). Return 0 on success, E_NOMEM on
 //    out of memory, and E_INVAL on invalid `addr`.
-inline int sys_page_alloc(void *addr) {
+inline int sys_page_alloc(void* addr) {
     return make_syscall(SYSCALL_PAGE_ALLOC, reinterpret_cast<uintptr_t>(addr));
 }
 
@@ -160,7 +158,7 @@ inline pid_t sys_getppid() {
 //    Wait until process `pid` exits and report its status. The status
 //    is stored in `*status`, if `status != nullptr`. If `pid == 0`,
 //    waits for any child. If `options == W_NOHANG`, returns immediately.
-inline pid_t sys_waitpid(pid_t pid, int *status = nullptr,
+inline pid_t sys_waitpid(pid_t pid, int* status = nullptr,
                          int options = 0) {
     return E_NOSYS;
 }
@@ -168,7 +166,7 @@ inline pid_t sys_waitpid(pid_t pid, int *status = nullptr,
 // sys_read(fd, buf, sz)
 //    Read bytes from `fd` into `buf`. Read at most `sz` bytes. Return
 //    the number of bytes read, which is 0 at EOF.
-inline ssize_t sys_read(int fd, char *buf, size_t sz) {
+inline ssize_t sys_read(int fd, char* buf, size_t sz) {
     clobber_memory(buf);
     return make_syscall(SYSCALL_READ, fd,
                         reinterpret_cast<uintptr_t>(buf), sz);
@@ -177,7 +175,7 @@ inline ssize_t sys_read(int fd, char *buf, size_t sz) {
 // sys_write(fd, buf, sz)
 //    Write bytes to `fd` from `buf`. Write at most `sz` bytes. Return
 //    the number of bytes written.
-inline ssize_t sys_write(int fd, const char *buf, size_t sz) {
+inline ssize_t sys_write(int fd, const char* buf, size_t sz) {
     access_memory(buf);
     return make_syscall(SYSCALL_WRITE, fd,
                         reinterpret_cast<uintptr_t>(buf), sz);
@@ -198,7 +196,7 @@ inline int sys_close(int fd) {
 // sys_open(path, flags)
 //    Open a new file descriptor for pathname `path`. `flags` should
 //    contain at least one of `OF_READ` and `OF_WRITE`.
-inline int sys_open(const char *path, int flags) {
+inline int sys_open(const char* path, int flags) {
     access_memory(path);
     return make_syscall(SYSCALL_OPEN, reinterpret_cast<uintptr_t>(path),
                         flags);
@@ -220,7 +218,7 @@ inline int sys_pipe(int pfd[2]) {
 //    Replace this process image with a new image running `program_name`
 //    with `argc` arguments, stored in argument array `argv`. Returns
 //    only on failure.
-inline int sys_execv(const char *program_name, const char *const *argv,
+inline int sys_execv(const char* program_name, const char* const* argv,
                      size_t argc) {
     access_memory(program_name);
     access_memory(argv);
@@ -233,7 +231,7 @@ inline int sys_execv(const char *program_name, const char *const *argv,
 //    Replace this process image with a new image running `program_name`
 //    with arguments `argv`. `argv` is a null-terminated array. Returns
 //    only on failure.
-inline int sys_execv(const char *program_name, const char *const *argv) {
+inline int sys_execv(const char* program_name, const char* const* argv) {
     size_t argc = 0;
     while (argv && argv[argc] != nullptr) {
         ++argc;
@@ -243,7 +241,7 @@ inline int sys_execv(const char *program_name, const char *const *argv) {
 
 // sys_unlink(pathname)
 //    Remove the file named `pathname`.
-inline int sys_unlink(const char *pathname) {
+inline int sys_unlink(const char* pathname) {
     access_memory(pathname);
     return make_syscall(SYSCALL_UNLINK, reinterpret_cast<uintptr_t>(pathname));
 }
@@ -252,8 +250,8 @@ inline int sys_unlink(const char *pathname) {
 //    Read bytes from disk file `pathname` into `buf`. Read at most `sz`
 //    bytes starting at file offset `off`. Return the number of bytes
 //    read, which is 0 at EOF.
-inline ssize_t sys_readdiskfile(const char *pathname,
-                                char *buf, size_t sz, off_t off) {
+inline ssize_t sys_readdiskfile(const char* pathname,
+                                char* buf, size_t sz, off_t off) {
     access_memory(pathname);
     clobber_memory(buf);
     return make_syscall(SYSCALL_READDISKFILE,
@@ -289,7 +287,7 @@ inline int sys_ftruncate(int fd, off_t len) {
 
 // sys_rename(oldpath, newpath)
 //    Rename the file with name `oldpath` to `newpath`.
-inline int sys_rename(const char *oldpath, const char *newpath) {
+inline int sys_rename(const char* oldpath, const char* newpath) {
     access_memory(oldpath);
     access_memory(newpath);
     return make_syscall(SYSCALL_RENAME, reinterpret_cast<uintptr_t>(oldpath),
@@ -312,7 +310,7 @@ inline pid_t sys_gettid() {
 //
 //    Unlike most other system calls, we recommend you implement `sys_clone`
 //    in `u-lib.cc`.
-pid_t sys_clone(int (*function)(void *), void *arg, char *stack_top);
+pid_t sys_clone(int (*function)(void*), void* arg, char* stack_top);
 
 // sys_texit(status)
 //    Exit the current thread with exit status `status`. If this is
@@ -327,10 +325,10 @@ pid_t sys_clone(int (*function)(void *), void *arg, char *stack_top);
 //    Construct a string from `format` and pass it to `sys_write(fd)`.
 //    Returns the number of characters printed, or E_2BIG if the string
 //    could not be constructed.
-int dprintf(int fd, const char *format, ...);
+int dprintf(int fd, const char* format, ...);
 
 // printf(format, ...)
 //    Like `dprintf(1, format, ...)`.
-int printf(const char *format, ...);
+int printf(const char* format, ...);
 
 #endif

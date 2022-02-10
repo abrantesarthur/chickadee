@@ -9,8 +9,6 @@ uint8_t* stack_bottom;
 void process_main() {
     sys_consoletype(CONSOLE_MEMVIEWER);
 
-    assert(false);
-
     pid_t p = sys_getpid();
     srand(p);
 

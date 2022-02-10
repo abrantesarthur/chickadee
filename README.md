@@ -6,7 +6,7 @@ This is Chickadee, a teaching operating system built for Harvard’s
 Quickstart: `make run` or `make run-PROGRAM` will run the OS using the
 [QEMU] emulator.
 
-,
+## Make targets
 
 `make NCPU=N run` runs the OS with `N` virtual CPUs (default is 2). Close
 the QEMU window, or type `q` inside it, to exit the OS.
@@ -69,7 +69,7 @@ If you experience runtime errors involving `obj/libqemu-nograb.so.1`, put
 `QEMU_PRELOAD_LIBRARY=` in `config.mk`. This disables a shim we use that
 prevents QEMU from grabbing the mouse.
 
-## Source file
+## Source files
 
 ### Common files
 

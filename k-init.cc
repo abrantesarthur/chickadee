@@ -6,7 +6,8 @@
 #include "elf.h"
 
 // sata_disk: pointer to the first SATA disk found
-ahcistate *sata_disk;
+ahcistate* sata_disk;
+
 
 // init_hardware
 //    Initialize hardware. Calls other functions below.
@@ -17,8 +18,7 @@ static void init_constructors();
 static void init_physical_ranges();
 static void init_other_processors();
 
-void init_hardware()
-{
+void init_hardware() {
     // initialize early-stage virtual memory structures
     init_early_memory();
 
@@ -56,8 +56,7 @@ void init_hardware()
 
     // initialize SATA drive
     sata_disk = ahcistate::find();
-    if (sata_disk && sata_disk->irq_ > 0)
-    {
+    if (sata_disk && sata_disk->irq_ > 0) {
         cpus[ncpu - 1].enable_irq(sata_disk->irq_);
     }
 }
@@ -77,24 +76,35 @@ void init_hardware()
 //
 //    The layouts of these types are defined by the hardware.
 
-static void set_app_segment(uint64_t *segment, uint64_t type, int dpl)
-{
-    *segment = type | X86SEG_S                     // code/data segment
-               | ((uint64_t)dpl << 45) | X86SEG_P; // segment present
+static void set_app_segment(uint64_t* segment, uint64_t type, int dpl) {
+    *segment = type
+        | X86SEG_S                    // code/data segment
+        | ((uint64_t) dpl << 45)
+        | X86SEG_P;                   // segment present
 }
 
-static void set_sys_segment(uint64_t *segment, uintptr_t addr, size_t size,
-                            uint64_t type, int dpl)
-{
-    segment[0] = ((addr & 0x0000000000FFFFFFUL) << 16) | ((addr & 0x00000000FF000000UL) << 32) | ((size - 1) & 0x0FFFFUL) | (((size - 1) & 0xF0000UL) << 48) | type | ((uint64_t)dpl << 45) | X86SEG_P; // segment present
+static void set_sys_segment(uint64_t* segment, uintptr_t addr, size_t size,
+                            uint64_t type, int dpl) {
+    segment[0] = ((addr & 0x0000000000FFFFFFUL) << 16)
+        | ((addr & 0x00000000FF000000UL) << 32)
+        | ((size - 1) & 0x0FFFFUL)
+        | (((size - 1) & 0xF0000UL) << 48)
+        | type
+        | ((uint64_t) dpl << 45)
+        | X86SEG_P;                   // segment present
     segment[1] = addr >> 32;
 }
 
-static void set_gate(x86_64_gatedescriptor *gate, uintptr_t addr,
-                     int type, int dpl, int ist)
-{
+static void set_gate(x86_64_gatedescriptor* gate, uintptr_t addr,
+                     int type, int dpl, int ist) {
     assert(unsigned(type) < 16 && unsigned(dpl) < 4 && unsigned(ist) < 8);
-    gate->gd_low = (addr & 0x000000000000FFFFUL) | (SEGSEL_KERN_CODE << 16) | (uint64_t(ist) << 32) | (uint64_t(type) << 40) | (uint64_t(dpl) << 45) | X86SEG_P | ((addr & 0x00000000FFFF0000UL) << 32);
+    gate->gd_low = (addr & 0x000000000000FFFFUL)
+        | (SEGSEL_KERN_CODE << 16)
+        | (uint64_t(ist) << 32)
+        | (uint64_t(type) << 40)
+        | (uint64_t(dpl) << 45)
+        | X86SEG_P
+        | ((addr & 0x00000000FFFF0000UL) << 32);
     gate->gd_high = addr >> 32;
 }
 
@@ -102,8 +112,7 @@ x86_64_pagetable __section(".lowdata") early_pagetable[3];
 uint64_t __section(".lowdata") early_gdt_segments[3];
 x86_64_pseudodescriptor __section(".lowdata") early_gdt;
 
-void init_early_memory()
-{
+void init_early_memory() {
     // initialize segment descriptors for kernel code and data
     early_gdt_segments[0] = 0;
     set_app_segment(&early_gdt_segments[SEGSEL_KERN_CODE >> 3],
@@ -111,11 +120,10 @@ void init_early_memory()
     set_app_segment(&early_gdt_segments[SEGSEL_KERN_DATA >> 3],
                     X86SEG_W, 0);
     early_gdt.limit = sizeof(early_gdt_segments) - 1;
-    early_gdt.base = (uint64_t)early_gdt_segments;
+    early_gdt.base = (uint64_t) early_gdt_segments;
 
-    asm volatile("lgdt %0"
-                 :
-                 : "m"(early_gdt.limit));
+    asm volatile("lgdt %0" : : "m" (early_gdt.limit));
+
 
     // initialize early page table
     memset(early_pagetable, 0, sizeof(early_pagetable));
@@ -128,8 +136,7 @@ void init_early_memory()
     early_pagetable->entry[511] = ktext2pa(&early_pagetable[2]) | PTE_P | PTE_W;
     // first level-3 page table maps first 512GiB of physical memory
     // (low canonical and high canonical)
-    for (uintptr_t p = 0; p < 512; ++p)
-    {
+    for (uintptr_t p = 0; p < 512; ++p) {
         early_pagetable[1].entry[p] = (p << 30) | PTE_P | PTE_W | PTE_PS;
     }
     // second level-3 page table maps its last 2 slots to the first 2GiB
@@ -143,16 +150,15 @@ void init_early_memory()
     // table) have been replaced, we can reuse boot-time memory.
 }
 
+
 extern x86_64_gatedescriptor interrupt_descriptors[256];
 
-void init_interrupts()
-{
+void init_interrupts() {
     // initialize interrupt descriptors
     // Macros in `k-exception.S` initialized `interrupt_descriptors[]` with
     // function pointers in the `gd_low` members. We must change them to the
     // weird format x86-64 expects.
-    for (int i = 0; i < 256; ++i)
-    {
+    for (int i = 0; i < 256; ++i) {
         uintptr_t addr = interrupt_descriptors[i].gd_low;
         set_gate(&interrupt_descriptors[i], addr,
                  X86GATE_INTERRUPT, i == INT_BP ? 3 : 0,
@@ -166,33 +172,32 @@ void init_interrupts()
     assert((apic_base & 0xFFFFFFFFF000) == lapicstate::lapic_pa);
 
     // ensure machine has an IOAPIC
-    auto &ioapic = ioapicstate::get();
+    auto& ioapic = ioapicstate::get();
     uint32_t ioapic_ver = ioapic.read(ioapic.reg_ver);
     assert((ioapic_ver & 0xFF) == 0x11 || (ioapic_ver & 0xFF) == 0x20);
     assert((ioapic_ver >> 16) >= 0x17);
 
     // disable the old programmable interrupt controller
-#define IO_PIC1 0x20 // Master (IRQs 0-7)
-#define IO_PIC2 0xA0 // Slave (IRQs 8-15)
+#define IO_PIC1         0x20    // Master (IRQs 0-7)
+#define IO_PIC2         0xA0    // Slave (IRQs 8-15)
     outb(IO_PIC1 + 1, 0xFF);
     outb(IO_PIC2 + 1, 0xFF);
 }
 
-void init_constructors()
-{
+
+void init_constructors() {
     typedef void (*constructor_function)();
     extern constructor_function __init_array_start[];
     extern constructor_function __init_array_end[];
-    for (auto fp = __init_array_start; fp != __init_array_end; ++fp)
-    {
+    for (auto fp = __init_array_start; fp != __init_array_end; ++fp) {
         (*fp)();
     }
 }
 
+
 memrangeset<16> physical_ranges(0x100000000UL);
 
-void init_physical_ranges()
-{
+void init_physical_ranges() {
     // [0, MEMSIZE_PHYSICAL) starts out available
     physical_ranges.set(0, MEMSIZE_PHYSICAL, mem_available);
     // 0 page is reserved (because nullptr)
@@ -213,8 +218,7 @@ void init_physical_ranges()
                         mem_kernel);
     // reserve memory for debugging facilities
     extern elf_symtabref symtab;
-    if (symtab.size)
-    {
+    if (symtab.size) {
         auto sympa = ktext2pa(symtab.sym);
         physical_ranges.set(round_down(sympa, PAGESIZE),
                             round_up(sympa + symtab.size, PAGESIZE),
@@ -227,13 +231,10 @@ void init_physical_ranges()
     // `physical_ranges` is constant after this point.
 }
 
-extern "C"
-{
-    void syscall_entry();
-}
 
-void cpustate::init_cpu_hardware()
-{
+extern "C" { void syscall_entry(); }
+
+void cpustate::init_cpu_hardware() {
     // initialize per-CPU segments
     gdt_segments_[0] = 0;
     set_app_segment(&gdt_segments_[SEGSEL_KERN_CODE >> 3],
@@ -245,46 +246,51 @@ void cpustate::init_cpu_hardware()
     set_app_segment(&gdt_segments_[SEGSEL_APP_DATA >> 3],
                     X86SEG_W, 3);
     set_sys_segment(&gdt_segments_[SEGSEL_TASKSTATE >> 3],
-                    (uintptr_t)&taskstate_, sizeof(taskstate_),
+                    (uintptr_t) &taskstate_, sizeof(taskstate_),
                     X86SEG_TSS, 0);
 
     memset(&taskstate_, 0, sizeof(taskstate_));
-    taskstate_.ts_rsp[0] = (uintptr_t)this + CPUSTACK_SIZE;
-    taskstate_.ts_ist[1] = (uintptr_t)this + CPUALTSTACK_SIZE;
+    taskstate_.ts_rsp[0] = (uintptr_t) this + CPUSTACK_SIZE;
+    taskstate_.ts_ist[1] = (uintptr_t) this + CPUALTSTACK_SIZE;
 
     x86_64_pseudodescriptor gdt, idt;
     gdt.limit = sizeof(gdt_segments_) - 1;
-    gdt.base = (uint64_t)gdt_segments_;
+    gdt.base = (uint64_t) gdt_segments_;
     idt.limit = sizeof(interrupt_descriptors) - 1;
-    idt.base = (uint64_t)interrupt_descriptors;
+    idt.base = (uint64_t) interrupt_descriptors;
+
 
     // load segment descriptor tables
     asm volatile("lgdt %0; ltr %1; lidt %2"
                  :
-                 : "m"(gdt.limit),
-                   "r"((uint16_t)SEGSEL_TASKSTATE),
-                   "m"(idt.limit)
+                 : "m" (gdt.limit),
+                   "r" ((uint16_t) SEGSEL_TASKSTATE),
+                   "m" (idt.limit)
                  : "memory", "cc");
 
     // initialize segments, including `%gs`, which points at this cpustate
     asm volatile("movw %%ax, %%fs; movw %%ax, %%gs"
-                 :
-                 : "a"((uint16_t)SEGSEL_KERN_DATA));
+                 : : "a" ((uint16_t) SEGSEL_KERN_DATA));
     wrmsr(MSR_IA32_GS_BASE, reinterpret_cast<uint64_t>(this));
+
 
     // set up control registers
     uint32_t cr0 = rdcr0();
     cr0 |= CR0_PE | CR0_PG | CR0_WP | CR0_AM | CR0_MP | CR0_NE;
     wrcr0(cr0);
 
+
     // set up syscall/sysret
     wrmsr(MSR_IA32_KERNEL_GS_BASE, 0);
-    wrmsr(MSR_IA32_STAR, (uintptr_t(SEGSEL_KERN_CODE) << 32) | (uintptr_t(SEGSEL_APP_CODE) << 48));
+    wrmsr(MSR_IA32_STAR, (uintptr_t(SEGSEL_KERN_CODE) << 32)
+          | (uintptr_t(SEGSEL_APP_CODE) << 48));
     wrmsr(MSR_IA32_LSTAR, reinterpret_cast<uint64_t>(syscall_entry));
-    wrmsr(MSR_IA32_FMASK, EFLAGS_TF | EFLAGS_DF | EFLAGS_IF | EFLAGS_IOPL_MASK | EFLAGS_AC | EFLAGS_NT);
+    wrmsr(MSR_IA32_FMASK, EFLAGS_TF | EFLAGS_DF | EFLAGS_IF
+          | EFLAGS_IOPL_MASK | EFLAGS_AC | EFLAGS_NT);
+
 
     // initialize local APIC (interrupt controller)
-    auto &lapic = lapicstate::get();
+    auto& lapic = lapicstate::get();
     lapic.enable_lapic(INT_IRQ + IRQ_SPURIOUS);
 
     lapic_id_ = lapic.id();
@@ -308,31 +314,27 @@ void cpustate::init_cpu_hardware()
     lapic.ack();
 }
 
-static void microdelay(int amount)
-{
-    uint64_t x = rdtsc() + (uint64_t)amount * 10000;
-    while ((int64_t)(x - rdtsc()) > 0)
-    {
+
+static void microdelay(int amount) {
+    uint64_t x = rdtsc() + (uint64_t) amount * 10000;
+    while ((int64_t) (x - rdtsc()) > 0) {
         asm volatile("pause");
     }
 }
 
-extern "C"
-{
-    extern void ap_entry();
-    extern spinlock ap_entry_lock;
-    extern bool ap_init_allowed;
+extern "C" {
+extern void ap_entry();
+extern spinlock ap_entry_lock;
+extern bool ap_init_allowed;
 }
 
-void cpustate::init_ap()
-{
+void cpustate::init_ap() {
     init();
     ap_entry_lock.unlock_noirq();
     schedule(nullptr);
 }
 
-void init_other_processors()
-{
+void init_other_processors() {
     // 10. convert entry point to an 8-bit vector
     uintptr_t ap_entry_pa = ktext2pa(ap_entry);
     assert((ap_entry_pa & 0xFFFFFFFFFFF00FFF) == 0);
@@ -344,24 +346,21 @@ void init_other_processors()
     // XXX CMOS shutdown code, warm reset vector
 
     // 15. broadcast INIT-SIPI-SIPI
-    auto &lapic = lapicstate::get();
+    auto& lapic = lapicstate::get();
     lapic.ipi_others(lapic.ipi_init);
     microdelay(10000);
-    while (lapic.ipi_pending())
-    {
+    while (lapic.ipi_pending()) {
     }
 
     lapic.ipi_others(lapic.ipi_startup, ap_entry_pa >> 12);
     microdelay(200);
-    while (lapic.ipi_pending())
-    {
+    while (lapic.ipi_pending()) {
     }
 
     lapic.ipi_others(lapic.ipi_startup, ap_entry_pa >> 12);
     // wait for processors to start up
     microdelay(20000);
-    while (lapic.ipi_pending())
-    {
+    while (lapic.ipi_pending()) {
     }
 
     ap_entry_lock.lock_noirq();
@@ -370,8 +369,7 @@ void init_other_processors()
 
     // Now that `ap_init_allowed` is false, no further CPUs will
     // initialize.
-    for (int i = 0; i < ncpu; ++i)
-    {
+    for (int i = 0; i < ncpu; ++i) {
         log_printf("CPU %d: LAPIC ID %d\n", i, cpus[i].lapic_id_);
     }
 }

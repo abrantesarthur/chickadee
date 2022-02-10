@@ -6,9 +6,9 @@
 //    The `memusage` class tracks memory usage by walking page tables,
 //    looks for errors, and prints the memory map to the console.
 
-class memusage
-{
-public:
+
+class memusage {
+  public:
     // tracks physical addresses in the range [0, maxpa)
     static constexpr uintptr_t maxpa = 1024 * PAGESIZE;
     // shows physical addresses in the range [0, max_view_pa)
@@ -17,26 +17,19 @@ public:
     static constexpr uintptr_t max_view_va = 768 * PAGESIZE;
 
     memusage()
-        : v_(nullptr)
-    {
+        : v_(nullptr) {
     }
 
     // Flag bits for memory types:
-    static constexpr unsigned f_kernel = 1; // kernel-restricted
-    static constexpr unsigned f_user = 2;   // user-accessible
+    static constexpr unsigned f_kernel = 1;     // kernel-restricted
+    static constexpr unsigned f_user = 2;       // user-accessible
     // `f_process(pid)` is for memory associated with process `pid`
-    static constexpr unsigned f_process(int pid)
-    {
-        if (pid >= 30)
-        {
+    static constexpr unsigned f_process(int pid) {
+        if (pid >= 30) {
             return 2U << 31;
-        }
-        else if (pid >= 1)
-        {
+        } else if (pid >= 1) {
             return 2U << pid;
-        }
-        else
-        {
+        } else {
             return 0;
         }
     }
@@ -49,36 +42,32 @@ public:
     // Return the symbol (character & color) associated with `pa`
     uint16_t symbol_at(uintptr_t pa) const;
 
-private:
-    unsigned *v_;
+  private:
+    unsigned* v_;
 
     // add `flags` to the page containing `pa`
     // This is safe to call even if `pa >= maxpa`.
-    void mark(uintptr_t pa, unsigned flags)
-    {
-        if (pa < maxpa)
-        {
+    void mark(uintptr_t pa, unsigned flags) {
+        if (pa < maxpa) {
             v_[pa / PAGESIZE] |= flags;
         }
     }
     // return one of the processes set in a mark
-    static int marked_pid(unsigned v)
-    {
+    static int marked_pid(unsigned v) {
         return lsb(v >> 2);
     }
     // print an error about a page table
-    void page_error(uintptr_t pa, const char *desc, int pid) const;
+    void page_error(uintptr_t pa, const char* desc, int pid) const;
 };
+
 
 // memusage::refresh()
 //    Calculate the current physical usage map, using the current process
 //    table.
 
-void memusage::refresh()
-{
-    if (!v_)
-    {
-        v_ = reinterpret_cast<unsigned *>(kalloc(PAGESIZE));
+void memusage::refresh() {
+    if (!v_) {
+        v_ = reinterpret_cast<unsigned*>(kalloc(PAGESIZE));
         assert(v_ != nullptr);
     }
 
@@ -88,14 +77,11 @@ void memusage::refresh()
     // We handle reserved ranges of physical memory separately.
     for (auto range = physical_ranges.begin();
          range != physical_ranges.end();
-         ++range)
-    {
-        if (range->type() == mem_kernel)
-        {
+         ++range) {
+        if (range->type() == mem_kernel) {
             for (uintptr_t pa = range->first();
                  pa != range->last();
-                 pa += PAGESIZE)
-            {
+                 pa += PAGESIZE) {
                 mark(pa, f_kernel);
             }
         }
@@ -103,33 +89,25 @@ void memusage::refresh()
 
     // mark pages accessible from process page tables
     assert(ptable_lock.is_locked());
-    for (int pid = 1; pid < NPROC; ++pid)
-    {
+    for (int pid = 1; pid < NPROC; ++pid) {
         proc *p = ptable[pid];
-        if (p)
-        {
+        if (p) {
             mark(ka2pa(p), f_kernel | f_process(pid));
 
             auto irqs = p->lock_pagetable_read();
-            if (p->pagetable_ && p->pagetable_ != early_pagetable)
-            {
-                for (ptiter it(p); it.low(); it.next())
-                {
+            if (p->pagetable_ && p->pagetable_ != early_pagetable) {
+                for (ptiter it(p); it.low(); it.next()) {
                     // mark pagetable as kernel
                     mark(it.pa(), f_kernel | f_process(pid));
                 }
                 mark(ka2pa(p->pagetable_), f_kernel | f_process(pid));
 
-                for (vmiter it(p, 0); it.low();)
-                {
-                    if (it.user())
-                    {
+                for (vmiter it(p, 0); it.low();) {
+                    if (it.user()) {
                         // if user accessible, mark pagetable as user
                         mark(it.pa(), f_user | f_process(pid));
                         it.next();
-                    }
-                    else
-                    {
+                    } else {
                         it.next_range();
                     }
                 }
@@ -166,79 +144,54 @@ void memusage::page_error(uintptr_t pa, const char *desc, int pid) const
     log_printf(fmt, pa, desc, pid);
 }
 
-uint16_t memusage::symbol_at(uintptr_t pa) const
-{
+uint16_t memusage::symbol_at(uintptr_t pa) const {
     auto range = physical_ranges.find(pa);
-    if (range == physical_ranges.end() || (pa >= maxpa && range->type() == mem_available))
-    {
+    if (range == physical_ranges.end()
+        || (pa >= maxpa && range->type() == mem_available)) {
         return '?' | 0xF000;
     }
 
-    if (pa >= maxpa)
-    {
-        if (range->type() == mem_kernel)
-        {
+    if (pa >= maxpa) {
+        if (range->type() == mem_kernel) {
             return 'K' | 0x4000;
-        }
-        else
-        {
+        } else {
             return '?' | 0x4000;
         }
     }
 
     auto v = v_[pa / PAGESIZE];
-    if (range->type() == mem_console)
-    {
+    if (range->type() == mem_console) {
         return 'C' | 0x4F00;
-    }
-    else if (range->type() == mem_reserved)
-    {
+    } else if (range->type() == mem_reserved) {
         return 'R' | (v ? 0xC000 : 0x4000);
-    }
-    else if (range->type() == mem_kernel)
-    {
+    } else if (range->type() == mem_kernel) {
         return 'K' | (v > f_kernel ? 0xCD00 : 0x4D00);
-    }
-    else if (range->type() == mem_nonexistent)
-    {
+    } else if (range->type() == mem_nonexistent) {
         return ' ' | 0x0700;
-    }
-    else
-    {
-        if (v == 0)
-        {
+    } else {
+        if (v == 0) {
             return '.' | 0x0700;
-        }
-        else if (v == f_kernel)
-        {
+        } else if (v == f_kernel) {
             return 'K' | 0x4000;
-        }
-        else if ((v & f_kernel) && (v & f_user))
-        {
+        } else if ((v & f_kernel) && (v & f_user)) {
             // kernel-restricted + user-accessible = error
             page_error(pa, "sharing error, kernel-restricted + user-accessible\n",
                        marked_pid(v));
             return '*' | 0xF400;
-        }
-        else
-        {
+        } else {
             // find lowest process involved with this page
             pid_t pid = marked_pid(v);
             // foreground color is that associated with `pid`
-            static const uint8_t colors[] = {0xF, 0xC, 0xA, 0x9, 0xE};
+            static const uint8_t colors[] = { 0xF, 0xC, 0xA, 0x9, 0xE };
             uint16_t ch = colors[pid % 5] << 8;
-            if (v & f_kernel)
-            {
+            if (v & f_kernel) {
                 // kernel page: dark red background
                 ch = 0x4000 | (ch == 0x0C00 ? 0x0F00 : ch);
             }
-            if (v > (f_process(pid) | f_kernel | f_user))
-            {
+            if (v > (f_process(pid) | f_kernel | f_user)) {
                 // shared page
                 ch = (ch & 0x7700) | 'S';
-            }
-            else
-            {
+            } else {
                 // non-shared page
                 static const char names[] = "K123456789ABCDEFGHIJKLMNOPQRST??";
                 ch |= names[pid];
@@ -248,50 +201,41 @@ uint16_t memusage::symbol_at(uintptr_t pa) const
     }
 }
 
-static void console_memviewer_virtual(memusage &mu, proc *vmp)
-{
-    const char *statemsg = vmp->pstate_ == proc::ps_faulted ? " (faulted)" : "";
+
+static void console_memviewer_virtual(memusage& mu, proc* vmp) {
+    const char* statemsg = vmp->pstate_ == proc::ps_faulted ? " (faulted)" : "";
     console_printf(CPOS(10, 26), 0x0F00,
                    "VIRTUAL ADDRESS SPACE FOR %d%C%s\n", vmp->id_,
                    0x0700, statemsg);
 
     for (vmiter it(vmp, 0);
          it.va() < memusage::max_view_va;
-         it += PAGESIZE)
-    {
+         it += PAGESIZE) {
         unsigned long pn = it.va() / PAGESIZE;
-        if (pn % 64 == 0)
-        {
+        if (pn % 64 == 0) {
             console_printf(CPOS(11 + pn / 64, 3), 0x0F00,
                            "0x%06X ", it.va());
         }
         uint16_t ch;
-        if (!it.present())
-        {
+        if (!it.present()) {
             ch = ' ';
-        }
-        else
-        {
+        } else {
             ch = mu.symbol_at(it.pa());
-            if (it.user())
-            { // switch foreground & background colors
-                if (ch == (0x0F00 | 'S'))
-                {
+            if (it.user()) { // switch foreground & background colors
+                if (ch == (0x0F00 | 'S')) {
                     ch ^= 0xFE00;
-                }
-                else
-                {
+                } else {
                     uint16_t z = (ch & 0x0F00) ^ ((ch & 0xF000) >> 4);
                     ch ^= z | (z << 4);
                 }
             }
         }
-        console[CPOS(11 + pn / 64, 12 + pn % 64)] = ch;
+        console[CPOS(11 + pn/64, 12 + pn%64)] = ch;
     }
 }
 
-void console_memviewer(proc *vmp)
-{
+
+void console_memviewer(proc* vmp) {
     // track physical memory
     static memusage mu;
     mu.refresh();
@@ -302,29 +246,24 @@ void console_memviewer(proc *vmp)
                    "PHYSICAL MEMORY                  @%lu\n",
                    ticks.load());
 
-    for (int pn = 0; pn * PAGESIZE < memusage::max_view_pa; ++pn)
-    {
-        if (pn % 64 == 0)
-        {
-            console_printf(CPOS(1 + pn / 64, 3), 0x0F00, "0x%06X ", pn << 12);
+    for (int pn = 0; pn * PAGESIZE < memusage::max_view_pa; ++pn) {
+        if (pn % 64 == 0) {
+            console_printf(CPOS(1 + pn/64, 3), 0x0F00, "0x%06X ", pn << 12);
         }
-        console[CPOS(1 + pn / 64, 12 + pn % 64)] = mu.symbol_at(pn * PAGESIZE);
+        console[CPOS(1 + pn/64, 12 + pn%64)] = mu.symbol_at(pn * PAGESIZE);
     }
 
     // print virtual memory
     bool need_clear = true;
-    if (vmp)
-    {
+    if (vmp) {
         auto irqs = vmp->lock_pagetable_read();
-        if (vmp->pagetable_ && vmp->pagetable_ != early_pagetable)
-        {
+        if (vmp->pagetable_ && vmp->pagetable_ != early_pagetable) {
             console_memviewer_virtual(mu, vmp);
             need_clear = false;
         }
         vmp->unlock_pagetable_read(irqs);
     }
-    if (need_clear)
-    {
+    if (need_clear) {
         console_printf(CPOS(10, 0), 0x0F00, "\n\n\n\n\n\n\n\n\n\n");
     }
 }

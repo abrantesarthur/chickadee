@@ -1,3 +1,4 @@
+QEMUIMAGEFILES = chickadeeboot.img chickadeefs.img
 all: $(QEMUIMAGEFILES)
 
 # Place local configuration options, such as `CC=clang`, in

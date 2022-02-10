@@ -278,51 +278,39 @@ void kfree_proc(proc *p) {
 // operator new, operator delete
 //    Expressions like `new (std::nothrow) T(...)` and `delete x` work,
 //    and call kalloc/kfree.
-void *operator new(size_t sz, const std::nothrow_t &) noexcept
-{
+void* operator new(size_t sz, const std::nothrow_t&) noexcept {
     return kalloc(sz);
 }
-void *operator new(size_t sz, std::align_val_t, const std::nothrow_t &) noexcept
-{
+void* operator new(size_t sz, std::align_val_t, const std::nothrow_t&) noexcept {
     return kalloc(sz);
 }
-void *operator new[](size_t sz, const std::nothrow_t &) noexcept
-{
+void* operator new[](size_t sz, const std::nothrow_t&) noexcept {
     return kalloc(sz);
 }
-void *operator new[](size_t sz, std::align_val_t, const std::nothrow_t &) noexcept
-{
+void* operator new[](size_t sz, std::align_val_t, const std::nothrow_t&) noexcept {
     return kalloc(sz);
 }
-void operator delete(void *ptr)noexcept
-{
+void operator delete(void* ptr) noexcept {
     kfree(ptr);
 }
-void operator delete(void *ptr, size_t)noexcept
-{
+void operator delete(void* ptr, size_t) noexcept {
     kfree(ptr);
 }
-void operator delete(void *ptr, std::align_val_t)noexcept
-{
+void operator delete(void* ptr, std::align_val_t) noexcept {
     kfree(ptr);
 }
-void operator delete(void *ptr, size_t, std::align_val_t)noexcept
-{
+void operator delete(void* ptr, size_t, std::align_val_t) noexcept {
     kfree(ptr);
 }
-void operator delete[](void *ptr) noexcept
-{
+void operator delete[](void* ptr) noexcept {
     kfree(ptr);
 }
-void operator delete[](void *ptr, size_t) noexcept
-{
+void operator delete[](void* ptr, size_t) noexcept {
     kfree(ptr);
 }
-void operator delete[](void *ptr, std::align_val_t) noexcept
-{
+void operator delete[](void* ptr, std::align_val_t) noexcept {
     kfree(ptr);
 }
-void operator delete[](void *ptr, size_t, std::align_val_t) noexcept
-{
+void operator delete[](void* ptr, size_t, std::align_val_t) noexcept {
     kfree(ptr);
 }

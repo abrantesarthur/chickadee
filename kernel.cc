@@ -1,5 +1,4 @@
 #include "kernel.hh"
-
 #include "k-ahci.hh"
 #include "k-apic.hh"
 #include "k-chkfs.hh"
@@ -86,7 +85,6 @@ void boot_process_start(pid_t pid, const char* name) {
 void proc::exception(regstate* regs) {
     // It can be useful to log events using `log_printf`.
     // Events logged this way are stored in the host's `log.txt` file.
-    // log_printf("proc %d: exception %d @%p\n", id_, regs->reg_intno, regs->reg_rip);
 
     // Record most recent user-mode %rip.
     if ((regs->reg_cs & 3) != 0) {
@@ -148,6 +146,7 @@ void proc::exception(regstate* regs) {
     // return to interrupted context
 }
 
+
 // proc::syscall(regs)
 //    System call handler.
 //
@@ -156,7 +155,7 @@ void proc::exception(regstate* regs) {
 //    process in `%rax`.
 
 uintptr_t proc::syscall(regstate* regs) {
-    // log_printf("proc %d: syscall %ld @%p\n", id_, regs->reg_rax, regs->reg_rip);
+
 
     // Record most recent user-mode %rip.
     recent_user_rip_ = regs->reg_rip;
@@ -327,7 +326,6 @@ int proc::syscall_fork(regstate* regs) {
 
     return child_pid;
 }
-
 // proc::syscall_read(regs), proc::syscall_write(regs),
 // proc::syscall_readdiskfile(regs)
 //    Handle read and write system calls.
@@ -431,9 +429,9 @@ uintptr_t proc::syscall_readdiskfile(regstate* regs) {
         if (bcentry* e = it.find(off).get_disk_entry()) {
             unsigned b = it.block_relative_offset();
             size_t ncopy = min(
-                size_t(ino->size - it.offset()),  // bytes left in file
-                chkfs::blocksize - b,             // bytes left in block
-                sz - nread                        // bytes left in request
+                size_t(ino->size - it.offset()),   // bytes left in file
+                chkfs::blocksize - b,              // bytes left in block
+                sz - nread                         // bytes left in request
             );
             memcpy(buf + nread, e->buf_ + b, ncopy);
             e->put();
@@ -452,6 +450,8 @@ uintptr_t proc::syscall_readdiskfile(regstate* regs) {
     ino->put();
     return nread;
 }
+
+
 
 // memshow()
 //    Draw a picture of memory (physical and virtual) on the CGA console.
@@ -478,19 +478,22 @@ static void memshow() {
     spinlock_guard guard(ptable_lock);
 
     int search = 0;
-    while ((!ptable[showing] || !ptable[showing]->pagetable_ || ptable[showing]->pagetable_ == early_pagetable) && search < NPROC) {
+    while ((!ptable[showing]
+            || !ptable[showing]->pagetable_
+            || ptable[showing]->pagetable_ == early_pagetable)
+           && search < NPROC) {
         showing = (showing + 1) % NPROC;
         ++search;
     }
 
     console_memviewer(ptable[showing]);
     if (!ptable[showing]) {
-        console_printf(CPOS(10, 26), 0x0F00,
-                       "   VIRTUAL ADDRESS SPACE\n"
-                       "                          [All processes have exited]\n"
-                       "\n\n\n\n\n\n\n\n\n\n\n");
+        console_printf(CPOS(10, 26), 0x0F00, "   VIRTUAL ADDRESS SPACE\n"
+            "                          [All processes have exited]\n"
+            "\n\n\n\n\n\n\n\n\n\n\n");
     }
 }
+
 
 // tick()
 //    Called once every tick (0.01 sec, 1/HZ) by CPU 0. Updates the `ticks`

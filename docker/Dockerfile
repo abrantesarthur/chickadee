@@ -11,74 +11,74 @@ RUN apt-get update &&\
 
 # install GCC-related packages
 RUN apt-get -y install\
- binutils-doc\
- cpp-doc\
- gcc-doc\
- g++\
- gdb\
- gdb-doc\
- glibc-doc\
- libblas-dev\
- liblapack-dev\
- liblapack-doc\
- libstdc++-10-doc\
- make\
- make-doc
+  binutils-doc\
+  cpp-doc\
+  gcc-doc\
+  g++\
+  gdb\
+  gdb-doc\
+  glibc-doc\
+  libblas-dev\
+  liblapack-dev\
+  liblapack-doc\
+  libstdc++-10-doc\
+  make\
+  make-doc
 
 # install clang-related packages
 RUN apt-get -y install\
- clang\
- clang-10-doc\
- lldb
+  clang\
+  clang-10-doc\
+  lldb
 
 # install cross-compiler
 RUN apt-get -y install\
- g++-x86-64-linux-gnu\
- gdb-multiarch
+  g++-x86-64-linux-gnu\
+  gdb-multiarch
 
 # install qemu for WeensyOS (sadly, this pulls in a lot of crap)
 RUN apt-get -y install\
- qemu-system-x86
+  qemu-system-x86
 
 # install programs used for system exploration
 RUN apt-get -y install\
- blktrace\
- linux-tools-generic\
- strace\
- tcpdump
+  blktrace\
+  linux-tools-generic\
+  strace\
+  tcpdump
 
 # install interactive programs (emacs, vim, nano, man, sudo, etc.)
 RUN apt-get -y install\
- bc\
- curl\
- dc\
- emacs-nox\
- git\
- git-doc\
- man\
- micro\
- nano\
- psmisc\
- sudo\
- vim\
- wget
+  bc\
+  curl\
+  dc\
+  emacs-nox\
+  git\
+  git-doc\
+  man\
+  micro\
+  nano\
+  psmisc\
+  sudo\
+  vim\
+  wget
 
 # set up libraries
 RUN apt-get -y install\
- libreadline-dev\
- locales\
- wamerican
+  libreadline-dev\
+  locales\
+  wamerican
 
 # install programs used for networking
 RUN apt-get -y install\
- dnsutils\
- inetutils-ping\
- iproute2\
- net-tools\
- netcat\
- telnet\
- time\
- traceroute
+  dnsutils\
+  inetutils-ping\
+  iproute2\
+  net-tools\
+  netcat\
+  telnet\
+  time\
+  traceroute
 
 # set up default locale
 RUN locale-gen en_US.UTF-8
