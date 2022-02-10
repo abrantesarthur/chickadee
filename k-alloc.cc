@@ -42,15 +42,35 @@ struct blocktable {
 
 
 struct page {
-    bool free = 0;
+    bool free = false;
     int order = MIN_ORDER;
+};
+
+struct pageset {
+    void init();
+
+    page ps_[PAGES_COUNT];
 };
 
 // declare datastructure that keeps track of blocks of a given order
 blocktable btable;
 // declare a free_blocks of block structures, each linked by their link_ member
 list<block, &block::link_> free_blocks[ORDER_COUNT];
-page pages[PAGES_COUNT];
+pageset pages;
+
+void pageset::init() {
+    auto irqs = page_lock.lock();
+    for(uintptr_t pa = 0; pa < physical_ranges.limit(); pa += PAGESIZE) {
+        if(physical_ranges.type(pa) == mem_available) {
+            // mark page as free
+            ps_[pa / PAGESIZE].free = true;
+            free_blocks[0].push_back(btable.get_block(pa));
+        } 
+    }
+    page_lock.unlock(irqs);
+}
+
+
 
 void blocktable::init() {
     block* b;
@@ -76,7 +96,7 @@ uintptr_t blocktable::block_index(int order, uintptr_t addr) {
 // TODO: this only works if pa is 512 aligned
 block* blocktable::get_block(uintptr_t addr) {
     // TODO: somewhere assert that all pages within a block have the same order
-    return get_block(addr, pages[addr / PAGESIZE].order);
+    return get_block(addr, pages.ps_[addr / PAGESIZE].order);
 }
 
 // TODO: this should be a method of block
@@ -124,7 +144,7 @@ void try_merge(uintptr_t block_addr) {
     // TODO: add iteration support to block_pages (e.g., va, next, etc);
     // only proceed if all pages within the block are free
     for(uintptr_t addr = blk->first_; addr < blk->last_; addr+=PAGESIZE) {
-        if(pages[addr / PAGESIZE].free == 0) {
+        if(pages.ps_[addr / PAGESIZE].free == 0) {
             return;
         }
     }
@@ -134,7 +154,7 @@ void try_merge(uintptr_t block_addr) {
 
     // only proceed if all pages within the buddy are free
     for(uintptr_t addr = buddy->first_; addr < buddy->last_; addr+=PAGESIZE) {
-        if(pages[addr / PAGESIZE].free == 0) {
+        if(pages.ps_[addr / PAGESIZE].free == 0) {
             return;
         }
     }
@@ -154,10 +174,10 @@ void try_merge(uintptr_t block_addr) {
 
     //update pages
     for(uintptr_t addr = blk->first_; addr < blk->last_; addr+=PAGESIZE) {
-        pages[blk->first_ / PAGESIZE].order = blk->order_ + 1;
+        pages.ps_[blk->first_ / PAGESIZE].order = blk->order_ + 1;
     }
     for(uintptr_t addr = buddy->first_; addr < buddy->last_; addr+=PAGESIZE) {
-        pages[buddy->first_ / PAGESIZE].order = blk->order_ + 1;
+        pages.ps_[buddy->first_ / PAGESIZE].order = blk->order_ + 1;
     }
 
     try_merge(parent_blk->first_);   
@@ -169,20 +189,7 @@ void try_merge(uintptr_t block_addr) {
 //    after `physical_ranges` is initialized.
 void init_kalloc() {
     btable.init();
-
-    //Initialize free list's first order column and pages
-    // TODO: make this a method of pages or free_blocks
-    auto irqs = page_lock.lock();
-    for(uintptr_t pa = 0; pa < physical_ranges.limit(); pa += PAGESIZE) {
-        if(physical_ranges.type(pa) == mem_available) {
-            // mark block as free and with order 12
-            pages[pa / PAGESIZE].free = true;
-            pages[pa / PAGESIZE].order = MIN_ORDER;
-            // TODO: because of how get_block works, this order could be important
-            free_blocks[0].push_back(btable.get_block(pa));
-        } 
-    }
-    page_lock.unlock(irqs);
+    pages.init();
     
     for(int row = 0; row < PAGES_COUNT; row++) {
         try_merge(row * PAGESIZE);
@@ -249,8 +256,8 @@ void* kalloc(size_t sz) {
 
             //update pages orders
             // TODO: should I not update all pages within that block
-            pages[left_blk->first_ / PAGESIZE].order = o - 1;
-            pages[right_blk->first_ / PAGESIZE].order = o - 1;
+            pages.ps_[left_blk->first_ / PAGESIZE].order = o - 1;
+            pages.ps_[right_blk->first_ / PAGESIZE].order = o - 1;
 
             //update free_blocks
             free_blocks[o - MIN_ORDER - 1].push_back(right_blk);
@@ -263,7 +270,7 @@ void* kalloc(size_t sz) {
 
     // set block's free status to false
     for (uintptr_t addr = blk->first_; addr < blk->last_; addr += PAGESIZE) {
-        pages[addr / PAGESIZE].free = false; 
+        pages.ps_[addr / PAGESIZE].free = false; 
     }
 
     if (ptr) {
@@ -299,17 +306,17 @@ void kfree(void* ptr) {
     
 
     // get block
-    int order = pages[block_pa / PAGESIZE].order;
+    int order = pages.ps_[block_pa / PAGESIZE].order;
     block* blk = btable.get_block(block_pa, order);
 
     // free pages within that block
     for(uintptr_t addr = blk->first_; addr < blk->last_; addr+=PAGESIZE){
         // assert that pages within the block have the same order and are notfree
-        assert(pages[addr / PAGESIZE].free == false);
-        assert(pages[addr / PAGESIZE].order == order);
+        assert(pages.ps_[addr / PAGESIZE].free == false);
+        assert(pages.ps_[addr / PAGESIZE].order == order);
 
         // free pages
-        pages[addr / PAGESIZE].free = true;
+        pages.ps_[addr / PAGESIZE].free = true;
     }
 
     // TODO: should I not also add it to free_list?
