@@ -191,6 +191,9 @@ extern std::atomic<unsigned long> ticks;        // number of ticks since boot
 #define MEMSIZE_PHYSICAL        0x200000
 // Virtual memory size
 #define MEMSIZE_VIRTUAL         0x300000
+// Number of pages in physical memory
+// TODO: define it in terms of other constants
+#define PAGES_COUNT 512
 
 enum memtype_t {
     mem_nonexistent = 0,
