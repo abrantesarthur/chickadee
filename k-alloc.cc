@@ -34,7 +34,7 @@ struct blocktable {
 
         // get address of buddy of block at address 'addr'
         // TODO: make it return uintptr_t.
-        int get_buddy_addr(uintptr_t addr, int order);
+        int get_buddy_addr(int order, uintptr_t addr);
         // TODO: make it private
         block t_[ORDER_COUNT][PAGES_COUNT];
 };
@@ -65,6 +65,13 @@ uintptr_t blocktable::block_number(int order, uintptr_t addr) {
     return addr / ((1<<(order - MIN_ORDER)) * PAGESIZE);
 }
 
+// TODO: there is probably room for improvement!
+int blocktable::get_buddy_addr(int order, uintptr_t addr) {
+    int i = block_number(order, addr);
+    uintptr_t offset = (1 << (order - MIN_ORDER)) * PAGESIZE;
+    return (i % 2 == 0) ? addr + offset : addr - offset;
+}
+
 // lists of free blocks per order
 // list<block, &block::link_> free_blocks[ORDER_COUNT];
 // declare datastructure that keeps track of blocks of a given order
@@ -77,12 +84,6 @@ blocktable btable;
 // declare a free_list of block structures, each linked by their link_ member
 list<block, &block::link_> free_list[ORDER_COUNT];
 page pages[PAGES_COUNT];
-
-int get_buddy_addr(int block_order, uintptr_t block_addr) {
-    int blk_number = btable.block_number(block_order, block_addr);
-    uintptr_t offset = (1 << (block_order - MIN_ORDER)) * PAGESIZE;
-    return (blk_number % 2 == 0) ? block_addr + offset : block_addr - offset;
-}
 
 void merge(uintptr_t block_addr) {
 
@@ -222,9 +223,9 @@ void* kalloc(size_t sz) {
             // buddy is after block in physical memory
             if (btable.block_number(o - 1, blk->first_) % 2 == 0) {  
                 first_blk = &btable.t_[o - MIN_ORDER - 1][btable.block_number(o-1,blk->first_)];
-                second_blk = &btable.t_[o - MIN_ORDER - 1][btable.block_number(o-1,get_buddy_addr(o-1, blk->first_))];   
+                second_blk = &btable.t_[o - MIN_ORDER - 1][btable.block_number(o-1, btable.get_buddy_addr(o-1, blk->first_))];   
             } else { // buddy is before block in physical memory
-                first_blk = &btable.t_[o - MIN_ORDER - 1][btable.block_number(o-1, get_buddy_addr(o-1, blk->first_))];
+                first_blk = &btable.t_[o - MIN_ORDER - 1][btable.block_number(o-1, btable.get_buddy_addr(o-1, blk->first_))];
                 second_blk = &btable.t_[o - MIN_ORDER - 1][btable.block_number(o-1, blk->first_)];
             }
 
