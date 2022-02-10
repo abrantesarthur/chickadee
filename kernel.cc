@@ -248,6 +248,7 @@ int proc::syscall_nasty() {
         nasty_array[i] = 2;
     }
     assert(canary == CANARY);
+    
     return nasty_array[1] + nasty_array[2];
 }
 

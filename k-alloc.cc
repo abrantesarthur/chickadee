@@ -10,21 +10,20 @@ static uintptr_t next_free_pa;
 #define ORDER_COUNT 10
 
 // structure holding the beginning and end of a memory block
-struct Block {
-    uintptr_t begin_, end_;
-    uintptr_t buddy_addr_;
+struct block {
+    uintptr_t begin_, end_, buddy_addr_;
     list_links link_;
 };
 
-struct Page {
+struct page {
     bool free = 0;
     int order = MIN_ORDER;
 };
 
-// declare a free_list of Block structures, each linked by their link_ member
-list<Block, &Block::link_> free_list[ORDER_COUNT];
-Block block_table[ORDER_COUNT][PAGES_COUNT];
-Page pages[PAGES_COUNT];
+// declare a free_list of block structures, each linked by their link_ member
+list<block, &block::link_> free_list[ORDER_COUNT];
+block block_table[ORDER_COUNT][PAGES_COUNT];
+page pages[PAGES_COUNT];
 
 uintptr_t block_number(int order, uintptr_t addr) {
     return addr / ((1<<(order - MIN_ORDER)) * PAGESIZE);
@@ -41,20 +40,20 @@ void merge(uintptr_t block_addr) {
     //get block
     int blk_order = pages[block_addr / PAGESIZE].order;
     uintptr_t blk_number = block_number(blk_order, block_addr);
-    Block* block = &block_table[blk_order - 12][blk_number];
+    block* blk = &block_table[blk_order - 12][blk_number];
 
     // check if block is completely free
-    for(uintptr_t addr = block->begin_; addr < block->end_; addr+=PAGESIZE) {
+    for(uintptr_t addr = blk->begin_; addr < blk->end_; addr+=PAGESIZE) {
         if(pages[addr / PAGESIZE].free == 0) {
             return;
         }
     }
 
     // get buddy
-    uintptr_t buddy_addr = block->buddy_addr_;
+    uintptr_t buddy_addr = blk->buddy_addr_;
     int buddy_order = pages[buddy_addr / PAGESIZE].order;
     uintptr_t buddy_number = block_number(buddy_order, buddy_addr);
-    Block* buddy = &block_table[buddy_order - 12][buddy_number];
+    block* buddy = &block_table[buddy_order - 12][buddy_number];
 
     //check if buddy and block have the same order
     if(pages[buddy_addr / PAGESIZE].order != blk_order) {
@@ -70,31 +69,31 @@ void merge(uintptr_t block_addr) {
 
 
     // create new block to be pushed
-    static Block* new_block;
+    static block* new_blk;
     if(blk_number % 2 == 0) {   // buddy is after block in physical memory
-        new_block =
-            &block_table[blk_order - 12 + 1][block_number(blk_order + 1, block->begin_)];
+        new_blk =
+            &block_table[blk_order - 12 + 1][block_number(blk_order + 1, blk->begin_)];
     } else {                    // buddy is before block in physical memory
-        new_block =
+        new_blk =
             &block_table[blk_order - 12 + 1][block_number(blk_order + 1, buddy->begin_)];
     }
 
     // remove block and buddy from free_list of order
-    free_list[blk_order - MIN_ORDER].erase(block);
+    free_list[blk_order - MIN_ORDER].erase(blk);
     free_list[blk_order - MIN_ORDER].erase(buddy);
 
     // push new block to free_list entry of order + 1
-    free_list[blk_order + 1 - MIN_ORDER].push_back(new_block);
+    free_list[blk_order + 1 - MIN_ORDER].push_back(new_blk);
 
     //update pages
-    for(uintptr_t addr = block->begin_; addr < block->end_; addr+=PAGESIZE) {
-        pages[block->begin_ / PAGESIZE].order = blk_order + 1;
+    for(uintptr_t addr = blk->begin_; addr < blk->end_; addr+=PAGESIZE) {
+        pages[blk->begin_ / PAGESIZE].order = blk_order + 1;
     }
     for(uintptr_t addr = buddy->begin_; addr < buddy->end_; addr+=PAGESIZE) {
         pages[buddy->begin_ / PAGESIZE].order = blk_order + 1;
     }
 
-    merge(new_block->begin_);   
+    merge(new_blk->begin_);   
 }
 
 
@@ -104,7 +103,7 @@ void merge(uintptr_t block_addr) {
 void init_kalloc() {
     // initialize block_table
     int rows;
-    Block* blk;
+    block* blk;
     for (int col = 0; col < ORDER_COUNT; col++) {
         rows = PAGES_COUNT / (1 << col);
         for (int row = 0; row < rows; row++) {
@@ -129,13 +128,11 @@ void init_kalloc() {
         } 
     }
     page_lock.unlock(irqs);
-    //
+    
     // merge
     for(int row = 0; row < PAGES_COUNT; row++) {
         merge(row * PAGESIZE);
     }
-
-    
 }
 
 // kalloc(sz)
@@ -152,7 +149,6 @@ void init_kalloc() {
 //    The handout code does not free memory and allocates memory in units
 //    of pages.
 void* kalloc(size_t sz) {
-    
     //calculate order of allocation
     int order = msb(sz - 1);
 
@@ -164,54 +160,54 @@ void* kalloc(size_t sz) {
     void* ptr = nullptr;
 
     // find a free block with desired order 
-    Block* block = free_list[order - MIN_ORDER].pop_front();
-    if (block) {
+    block* blk = free_list[order - MIN_ORDER].pop_front();
+    if (blk) {
         //use this block
-        ptr = pa2kptr<void*>(block->begin_);
+        ptr = pa2kptr<void*>(blk->begin_);
     } else {
 
-        Block* first_block;
-        Block* second_block;
+        block* first_blk;
+        block* second_blk;
         // find free block with order o > order, minimizing o.
         for(int o = order + 1; o < MAX_ORDER; o++) {
             // if found a block
-            if((block = free_list[o - MIN_ORDER].pop_front())) {
+            if((blk = free_list[o - MIN_ORDER].pop_front())) {
                 break;
             }
         }
 
-        if(!block) {
+        if(!blk) {
             // return nullptr
             return nullptr;
         }
 
         // traverse down the list
-        for(int o = pages[block->begin_ / PAGESIZE].order; o > order; o--) {
+        for(int o = pages[blk->begin_ / PAGESIZE].order; o > order; o--) {
             //divide the block into two
             // buddy is after block in physical memory
-            if (block_number(o - 1, block->begin_) % 2 == 0) {  
-                first_block = &block_table[o - MIN_ORDER - 1][block_number(o-1,block->begin_)];
-                second_block = &block_table[o - MIN_ORDER - 1][block_number(o-1,get_buddy_addr(o-1, block->begin_))];   
+            if (block_number(o - 1, blk->begin_) % 2 == 0) {  
+                first_blk = &block_table[o - MIN_ORDER - 1][block_number(o-1,blk->begin_)];
+                second_blk = &block_table[o - MIN_ORDER - 1][block_number(o-1,get_buddy_addr(o-1, blk->begin_))];   
             } else { // buddy is before block in physical memory
-                first_block = &block_table[o - MIN_ORDER - 1][block_number(o-1, get_buddy_addr(o-1, block->begin_))];
-                second_block = &block_table[o - MIN_ORDER - 1][block_number(o-1, block->begin_)];
+                first_blk = &block_table[o - MIN_ORDER - 1][block_number(o-1, get_buddy_addr(o-1, blk->begin_))];
+                second_blk = &block_table[o - MIN_ORDER - 1][block_number(o-1, blk->begin_)];
             }
 
             //update pages orders
-            pages[first_block->begin_ /PAGESIZE].order = o - 1;
-            pages[second_block->begin_ /PAGESIZE].order = o - 1;
+            pages[first_blk->begin_ /PAGESIZE].order = o - 1;
+            pages[second_blk->begin_ /PAGESIZE].order = o - 1;
 
             //update free_list
-            free_list[o - MIN_ORDER - 1].push_back(second_block);
-            block = first_block;
+            free_list[o - MIN_ORDER - 1].push_back(second_blk);
+            blk = first_blk;
         }
     
         //use this block
-        ptr = pa2kptr<void*>(block->begin_);
+        ptr = pa2kptr<void*>(blk->begin_);
      }
 
     // set block's free status to false
-    for (uintptr_t addr = block->begin_; addr < block->end_; addr += PAGESIZE) {
+    for (uintptr_t addr = blk->begin_; addr < blk->end_; addr += PAGESIZE) {
         pages[addr / PAGESIZE].free = false; 
     }
 
@@ -249,10 +245,10 @@ void kfree(void* ptr) {
     int order = pages[block_addr / PAGESIZE].order;
 
     // get block
-    Block* block = &block_table[order - MIN_ORDER][block_number(order, block_addr)];
+    block* blk = &block_table[order - MIN_ORDER][block_number(order, block_addr)];
 
     // update pages, setting block's pages to free
-    for(uintptr_t addr = block->begin_; addr < block->end_; addr+=PAGESIZE){
+    for(uintptr_t addr = blk->begin_; addr < blk->end_; addr+=PAGESIZE){
         pages[addr / PAGESIZE].free = true;
     }
 
