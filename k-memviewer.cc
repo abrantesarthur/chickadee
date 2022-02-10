@@ -136,6 +136,7 @@ void memusage::refresh()
         }
     }
 
+    // mark idle tasks
     for (int cpuid = 0; cpuid < ncpu; cpuid++)
     {
         if (cpus[cpuid].idle_task_)
@@ -143,7 +144,15 @@ void memusage::refresh()
             mark(ka2pa(cpus[cpuid].idle_task_), f_kernel);
         }
     }
+
+    // mark v_ 
     mark(ka2pa(v_), f_kernel);
+
+    // mark sata_disk
+    mark(ka2pa(sata_disk), f_kernel);
+    mark(ka2pa(sata_disk) + 0x1000, f_kernel);
+    mark(ka2pa(sata_disk) + 0x2000, f_kernel);
+    mark(ka2pa(sata_disk) + 0x3000, f_kernel);
 }
 
 void memusage::page_error(uintptr_t pa, const char *desc, int pid) const
