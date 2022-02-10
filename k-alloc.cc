@@ -101,6 +101,9 @@ void merge(uintptr_t block_addr) {
     //get block
     block* blk = btable.get_block(block_addr);
 
+    log_printf("blk->first_: %d\n", blk->first_);
+    log_printf("buddy->first_: %d\n\n", blk->buddy_addr_);
+
     // check if block is completely free
     for(uintptr_t addr = blk->first_; addr < blk->last_; addr+=PAGESIZE) {
         if(pages[addr / PAGESIZE].free == 0) {
@@ -109,13 +112,10 @@ void merge(uintptr_t block_addr) {
     }
 
     // get buddy
-    uintptr_t buddy_addr = blk->buddy_addr_;
-    int buddy_order = pages[buddy_addr / PAGESIZE].order;
-    uintptr_t buddy_number = btable.block_number(buddy_order, buddy_addr);
-    block* buddy = &btable.t_[buddy_order - 12][buddy_number];
+    block* buddy = btable.get_block(blk->buddy_addr_);
 
     //check if buddy and block have the same order
-    if(pages[buddy_addr / PAGESIZE].order != blk->order_) {
+    if(pages[buddy->first_ / PAGESIZE].order != blk->order_) {
         return;
     }
 
