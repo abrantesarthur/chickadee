@@ -28,6 +28,7 @@ struct blocktable {
         // TODO: make it return unsigned
         uintptr_t block_number(int order, uintptr_t addr);
         block* get_block(uintptr_t addr);
+        block* get_block(uintptr_t addr, int order);
         // TODO: can I make this a block method?
         block* get_parent(block* b);
 
@@ -78,12 +79,15 @@ int blocktable::get_buddy_addr(int order, uintptr_t addr) {
 }
 
 // TODO: this only works if pa is 512 aligned
-// TODO: to decouple things, take order as an argument.
 block* blocktable::get_block(uintptr_t addr) {
     // TODO: is it possible for some page in that block to have different order? assert!
-    int o = pages[addr / PAGESIZE].order;
-    uintptr_t i = block_number(o, addr);
-    return &t_[o - MIN_ORDER][i];
+    return get_block(addr, pages[addr / PAGESIZE].order);
+}
+
+block* blocktable::get_block(uintptr_t addr, int order) {
+    // TODO: is it possible for some page in that block to have different order? assert!
+    uintptr_t i = block_number(order, addr);
+    return &t_[order - MIN_ORDER][i];
 }
 
 // TODO: make this a method of block*
@@ -172,7 +176,7 @@ void init_kalloc() {
     for(uintptr_t pa = 0; pa < physical_ranges.limit(); pa += PAGESIZE) {
         if(physical_ranges.type(pa) == mem_available) {
             //add block to free_blocks[0]
-            free_blocks[0].push_back(&btable.t_[0][pa / PAGESIZE]);
+            free_blocks[0].push_back(btable.get_block(pa));
             // mark block as free and with order 12
             pages[pa / PAGESIZE].free = true;
             pages[pa / PAGESIZE].order = MIN_ORDER;
@@ -217,8 +221,8 @@ void* kalloc(size_t sz) {
         ptr = pa2kptr<void*>(blk->first_);
     } else {
 
-        block* first_blk;
-        block* second_blk;
+        block* left_blk;
+        block* right_blk;
         // find free block with order o > order, minimizing o.
         for(int o = order + 1; o < MAX_ORDER; o++) {
             // if found a block
@@ -231,25 +235,28 @@ void* kalloc(size_t sz) {
             // return nullptr
             return nullptr;
         }
-        // traverse down the list
-        for(int o = pages[blk->first_ / PAGESIZE].order; o > order; o--) {
-            //divide the block into two
-            // buddy is after block in physical memory
+
+        // splitting the block as much as possible
+        for(int o = blk->order_; o > order; o--) {
+            log_printf("%d\n", blk->index_);
+            log_printf("%d\n\n", btable.block_number(o - 1, blk->first_));
+
             if (btable.block_number(o - 1, blk->first_) % 2 == 0) {  
-                first_blk = &btable.t_[o - MIN_ORDER - 1][btable.block_number(o-1,blk->first_)];
-                second_blk = &btable.t_[o - MIN_ORDER - 1][btable.block_number(o-1, btable.get_buddy_addr(o-1, blk->first_))];   
+                // buddy is after block in physical memory
+                left_blk = &btable.t_[o - MIN_ORDER - 1][btable.block_number(o-1,blk->first_)];
+                right_blk = &btable.t_[o - MIN_ORDER - 1][btable.block_number(o-1, btable.get_buddy_addr(o-1, blk->first_))];   
             } else { // buddy is before block in physical memory
-                first_blk = &btable.t_[o - MIN_ORDER - 1][btable.block_number(o-1, btable.get_buddy_addr(o-1, blk->first_))];
-                second_blk = &btable.t_[o - MIN_ORDER - 1][btable.block_number(o-1, blk->first_)];
+                left_blk = &btable.t_[o - MIN_ORDER - 1][btable.block_number(o-1, btable.get_buddy_addr(o-1, blk->first_))];
+                right_blk = &btable.t_[o - MIN_ORDER - 1][btable.block_number(o-1, blk->first_)];
             }
 
             //update pages orders
-            pages[first_blk->first_ /PAGESIZE].order = o - 1;
-            pages[second_blk->first_ /PAGESIZE].order = o - 1;
+            pages[left_blk->first_ /PAGESIZE].order = o - 1;
+            pages[right_blk->first_ /PAGESIZE].order = o - 1;
 
             //update free_blocks
-            free_blocks[o - MIN_ORDER - 1].push_back(second_blk);
-            blk = first_blk;
+            free_blocks[o - MIN_ORDER - 1].push_back(right_blk);
+            blk = left_blk;
         }
     
         //use this block
