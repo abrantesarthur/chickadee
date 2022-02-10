@@ -14,10 +14,7 @@ struct yieldstate;
 struct proc_loader;
 struct elf_program;
 #define PROC_RUNNABLE 1
-<<<<<<< HEAD
 #define CANARY 0xabcdef
-=======
->>>>>>> b2a4eedb70b6a31d6c26d084fd6aaf15007e3f2a
 
 
 // kernel.hh
