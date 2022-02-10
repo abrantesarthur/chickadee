@@ -87,6 +87,17 @@ block* blocktable::get_block(uintptr_t addr) {
     return &t_[o - MIN_ORDER][i];
 }
 
+block* blocktable::get_parent(block* b) {
+    block* buddy = get_block(b->buddy_addr_);
+    int p_order = b->order_ + 1;
+     // TODO: extract b->index_ % 2 == 0  into left() method
+    uintptr_t p_index = b->index_ % 2 == 0 ?  
+        block_number(p_order, b->first_) :
+        block_number(p_order, buddy->first_);
+    return &t_[p_order - MIN_ORDER ][p_index];
+}
+
+
 // lists of free blocks per order
 // list<block, &block::link_> free_blocks[ORDER_COUNT];
 // keep track of all physical memory
@@ -101,10 +112,9 @@ void merge(uintptr_t block_addr) {
     //get block
     block* blk = btable.get_block(block_addr);
 
-    log_printf("blk->first_: %d\n", blk->first_);
-    log_printf("buddy->first_: %d\n\n", blk->buddy_addr_);
 
     // check if block is completely free
+    // TODO: add iteration support to block_pages (e.g., va, next, etc);
     for(uintptr_t addr = blk->first_; addr < blk->last_; addr+=PAGESIZE) {
         if(pages[addr / PAGESIZE].free == 0) {
             return;
@@ -115,11 +125,12 @@ void merge(uintptr_t block_addr) {
     block* buddy = btable.get_block(blk->buddy_addr_);
 
     //check if buddy and block have the same order
-    if(pages[buddy->first_ / PAGESIZE].order != blk->order_) {
+    if(buddy->order_ != blk->order_) {
         return;
     }
 
     // check if buddy is completely free and not reserved
+    // TODO: can I improve this?
     for(uintptr_t addr = buddy->first_; addr < buddy->last_; addr+=PAGESIZE) {
         if(pages[addr / PAGESIZE].free == 0) {
             return;
@@ -128,21 +139,14 @@ void merge(uintptr_t block_addr) {
 
 
     // create new block to be pushed
-    static block* new_blk;
-    if(blk->index_ % 2 == 0) {   // buddy is after block in physical memory
-        new_blk =
-            &btable.t_[blk->order_ - 12 + 1][btable.block_number(blk->order_ + 1, blk->first_)];
-    } else {                    // buddy is before block in physical memory
-        new_blk =
-            &btable.t_[blk->order_ - 12 + 1][btable.block_number(blk->order_ + 1, buddy->first_)];
-    }
+    block* parent_blk = btable.get_parent(blk);
 
     // remove block and buddy from free_list of order
     free_list[blk->order_ - MIN_ORDER].erase(blk);
     free_list[blk->order_ - MIN_ORDER].erase(buddy);
 
     // push new block to free_list entry of order + 1
-    free_list[blk->order_ + 1 - MIN_ORDER].push_back(new_blk);
+    free_list[blk->order_ + 1 - MIN_ORDER].push_back(parent_blk);
 
     //update pages
     for(uintptr_t addr = blk->first_; addr < blk->last_; addr+=PAGESIZE) {
@@ -152,7 +156,7 @@ void merge(uintptr_t block_addr) {
         pages[buddy->first_ / PAGESIZE].order = blk->order_ + 1;
     }
 
-    merge(new_blk->first_);   
+    merge(parent_blk->first_);   
 }
 
 
