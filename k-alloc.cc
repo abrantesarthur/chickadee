@@ -238,7 +238,9 @@ void* kalloc(size_t sz) {
 
         // splitting the block as much as possible
         for(int o = blk->order_; o > order; o--) {
-            log_printf("%d\n", blk->index_);
+            block* child_blk_one = btable.get_block(blk->first_, o - 1);
+
+            log_printf("%d\n", child_blk_one->index_);
             log_printf("%d\n\n", btable.block_number(o - 1, blk->first_));
 
             if (btable.block_number(o - 1, blk->first_) % 2 == 0) {  
