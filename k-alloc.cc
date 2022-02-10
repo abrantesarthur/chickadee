@@ -262,6 +262,19 @@ void kfree(void* ptr) {
     return merge(block_addr);
 }
 
+// kfree_proc(p)
+//    Free the user-accessible memory of a process and the process itself
+void kfree_proc(proc *p) {
+    if(p) {
+        for (vmiter it(p, 0); it.low(); it.next()) {
+            if (it.user()) {
+                it.kfree_page();
+            }
+        }
+        kfree(p);
+    }
+}
+
 // operator new, operator delete
 //    Expressions like `new (std::nothrow) T(...)` and `delete x` work,
 //    and call kalloc/kfree.
