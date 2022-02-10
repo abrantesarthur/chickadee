@@ -115,6 +115,7 @@ void memusage::refresh()
             {
                 for (ptiter it(p); it.low(); it.next())
                 {
+                    // mark pagetable as kernel
                     mark(it.pa(), f_kernel | f_process(pid));
                 }
                 mark(ka2pa(p->pagetable_), f_kernel | f_process(pid));
@@ -123,6 +124,7 @@ void memusage::refresh()
                 {
                     if (it.user())
                     {
+                        // if user accessible, mark pagetable as user
                         mark(it.pa(), f_user | f_process(pid));
                         it.next();
                     }
