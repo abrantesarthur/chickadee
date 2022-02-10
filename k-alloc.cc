@@ -45,6 +45,12 @@ struct page {
     int order = MIN_ORDER;
 };
 
+// declare datastructure that keeps track of blocks of a given order
+blocktable btable;
+// declare a free_list of block structures, each linked by their link_ member
+list<block, &block::link_> free_list[ORDER_COUNT];
+page pages[PAGES_COUNT];
+
 void blocktable::init() {
     block* b;
     for (int o = 0; o < ORDER_COUNT; o++) {
@@ -55,7 +61,7 @@ void blocktable::init() {
             b->first_ = i * b->size_;
             b->last_ = b->first_ + b->size_ - 1;
             b->buddy_addr_ = ((i % 2) == 0) ? b->last_ + 1 : b->first_ - b->size_;
-            b->order_ = o;
+            b->order_ = o + MIN_ORDER;
             b->index_ = i;
         }
     }
@@ -72,25 +78,28 @@ int blocktable::get_buddy_addr(int order, uintptr_t addr) {
     return (i % 2 == 0) ? addr + offset : addr - offset;
 }
 
+// TODO: this only works if pa is 512 aligned
+// TODO: to decouple things, take order as an argument.
+block* blocktable::get_block(uintptr_t addr) {
+    // TODO: is it possible for some page in that block to have different order? assert!
+    int o = pages[addr / PAGESIZE].order;
+    uintptr_t i = block_number(o, addr);
+    return &t_[o - MIN_ORDER][i];
+}
+
 // lists of free blocks per order
 // list<block, &block::link_> free_blocks[ORDER_COUNT];
-// declare datastructure that keeps track of blocks of a given order
-blocktable btable;
 // keep track of all physical memory
 // page pages[PAGES_COUNT];
 
 ////////////////////////////////////////////////////////////////////////////
 
-// declare a free_list of block structures, each linked by their link_ member
-list<block, &block::link_> free_list[ORDER_COUNT];
-page pages[PAGES_COUNT];
+
 
 void merge(uintptr_t block_addr) {
 
     //get block
-    int blk_order = pages[block_addr / PAGESIZE].order;
-    uintptr_t blk_number = btable.block_number(blk_order, block_addr);
-    block* blk = &btable.t_[blk_order - 12][blk_number];
+    block* blk = btable.get_block(block_addr);
 
     // check if block is completely free
     for(uintptr_t addr = blk->first_; addr < blk->last_; addr+=PAGESIZE) {
@@ -106,7 +115,7 @@ void merge(uintptr_t block_addr) {
     block* buddy = &btable.t_[buddy_order - 12][buddy_number];
 
     //check if buddy and block have the same order
-    if(pages[buddy_addr / PAGESIZE].order != blk_order) {
+    if(pages[buddy_addr / PAGESIZE].order != blk->order_) {
         return;
     }
 
@@ -120,27 +129,27 @@ void merge(uintptr_t block_addr) {
 
     // create new block to be pushed
     static block* new_blk;
-    if(blk_number % 2 == 0) {   // buddy is after block in physical memory
+    if(blk->index_ % 2 == 0) {   // buddy is after block in physical memory
         new_blk =
-            &btable.t_[blk_order - 12 + 1][btable.block_number(blk_order + 1, blk->first_)];
+            &btable.t_[blk->order_ - 12 + 1][btable.block_number(blk->order_ + 1, blk->first_)];
     } else {                    // buddy is before block in physical memory
         new_blk =
-            &btable.t_[blk_order - 12 + 1][btable.block_number(blk_order + 1, buddy->first_)];
+            &btable.t_[blk->order_ - 12 + 1][btable.block_number(blk->order_ + 1, buddy->first_)];
     }
 
     // remove block and buddy from free_list of order
-    free_list[blk_order - MIN_ORDER].erase(blk);
-    free_list[blk_order - MIN_ORDER].erase(buddy);
+    free_list[blk->order_ - MIN_ORDER].erase(blk);
+    free_list[blk->order_ - MIN_ORDER].erase(buddy);
 
     // push new block to free_list entry of order + 1
-    free_list[blk_order + 1 - MIN_ORDER].push_back(new_blk);
+    free_list[blk->order_ + 1 - MIN_ORDER].push_back(new_blk);
 
     //update pages
     for(uintptr_t addr = blk->first_; addr < blk->last_; addr+=PAGESIZE) {
-        pages[blk->first_ / PAGESIZE].order = blk_order + 1;
+        pages[blk->first_ / PAGESIZE].order = blk->order_ + 1;
     }
     for(uintptr_t addr = buddy->first_; addr < buddy->last_; addr+=PAGESIZE) {
-        pages[buddy->first_ / PAGESIZE].order = blk_order + 1;
+        pages[buddy->first_ / PAGESIZE].order = blk->order_ + 1;
     }
 
     merge(new_blk->first_);   
