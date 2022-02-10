@@ -20,7 +20,8 @@
         "__string": "cpp",
         "memory_resource": "cpp",
         "memory": "cpp",
-        "new": "cpp"
+        "new": "cpp",
+        "__debug": "cpp"
     },
     "C_Cpp.errorSquiggles": "Disabled"
 }
