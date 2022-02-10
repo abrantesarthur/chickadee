@@ -67,27 +67,24 @@ void blocktable::init() {
     }
 }
 
+// TODO: can I refactor this to use t_ somehow? What about iterating over t_[o] list, looking for pa!!!
 uintptr_t blocktable::block_index(int order, uintptr_t addr) {
     return addr / ((1<<(order - MIN_ORDER)) * PAGESIZE);
 }
 
-// TODO: there is probably room for improvement!
-int blocktable::get_buddy_addr(int order, uintptr_t addr) {
-    int i = block_index(order, addr);
-    uintptr_t offset = (1 << (order - MIN_ORDER)) * PAGESIZE;
-    return (i % 2 == 0) ? addr + offset : addr - offset;
-}
-
 // TODO: this only works if pa is 512 aligned
 block* blocktable::get_block(uintptr_t addr) {
-    // TODO: is it possible for some page in that block to have different order? assert!
+    // TODO: somewhere assert that all pages within a block have the same order
     return get_block(addr, pages[addr / PAGESIZE].order);
 }
 
 block* blocktable::get_block(uintptr_t addr, int order) {
-    // TODO: is it possible for some page in that block to have different order? assert!
-    uintptr_t i = block_index(order, addr);
+    assert(order >= MIN_ORDER && order <= MAX_ORDER);
+
+    // get block index into blocktable
+     uintptr_t i = block_index(order, addr);
     return &t_[order - MIN_ORDER][i];
+
 }
 
 // TODO: make this a method of block*
@@ -101,6 +98,13 @@ block* blocktable::get_parent(block* b) {
     return &t_[p_order - MIN_ORDER ][p_index];
 }
 
+// TODO: there is probably room for improvement!
+int blocktable::get_buddy_addr(int order, uintptr_t addr) {
+    int i = block_index(order, addr);
+    uintptr_t offset = (1 << (order - MIN_ORDER)) * PAGESIZE;
+    return (i % 2 == 0) ? addr + offset : addr - offset;
+}
+
 
 // lists of free blocks per order
 // list<block, &block::link_> free_blocks[ORDER_COUNT];
@@ -110,15 +114,15 @@ block* blocktable::get_parent(block* b) {
 ////////////////////////////////////////////////////////////////////////////
 
 
-
-void merge(uintptr_t block_addr) {
-
+// TODO: should I always protect pages? What else should I protect? Some of these operations should be atomic
+// TODO: have it take a block as an argument
+void try_merge(uintptr_t block_addr) {
     //get block
     block* blk = btable.get_block(block_addr);
 
 
-    // check if block is completely free
     // TODO: add iteration support to block_pages (e.g., va, next, etc);
+    // only proceed if all pages within the block are free
     for(uintptr_t addr = blk->first_; addr < blk->last_; addr+=PAGESIZE) {
         if(pages[addr / PAGESIZE].free == 0) {
             return;
@@ -128,28 +132,24 @@ void merge(uintptr_t block_addr) {
     // get buddy
     block* buddy = btable.get_block(blk->buddy_addr_);
 
-    //check if buddy and block have the same order
-    if(buddy->order_ != blk->order_) {
-        return;
-    }
-
-    // check if buddy is completely free and not reserved
-    // TODO: can I improve this?
+    // only proceed if all pages within the buddy are free
     for(uintptr_t addr = buddy->first_; addr < buddy->last_; addr+=PAGESIZE) {
         if(pages[addr / PAGESIZE].free == 0) {
             return;
         }
     }
 
+    //buddy and block must have the same order
+    if(buddy->order_ != blk->order_) {
+        return;
+    }
 
-    // create new block to be pushed
+    // get parent block
     block* parent_blk = btable.get_parent(blk);
 
-    // remove block and buddy from free_blocks of order
+    // merge
     free_blocks[blk->order_ - MIN_ORDER].erase(blk);
     free_blocks[blk->order_ - MIN_ORDER].erase(buddy);
-
-    // push new block to free_blocks entry of order + 1
     free_blocks[blk->order_ + 1 - MIN_ORDER].push_back(parent_blk);
 
     //update pages
@@ -160,7 +160,7 @@ void merge(uintptr_t block_addr) {
         pages[buddy->first_ / PAGESIZE].order = blk->order_ + 1;
     }
 
-    merge(parent_blk->first_);   
+    try_merge(parent_blk->first_);   
 }
 
 
@@ -175,18 +175,17 @@ void init_kalloc() {
     auto irqs = page_lock.lock();
     for(uintptr_t pa = 0; pa < physical_ranges.limit(); pa += PAGESIZE) {
         if(physical_ranges.type(pa) == mem_available) {
-            //add block to free_blocks[0]
-            free_blocks[0].push_back(btable.get_block(pa));
             // mark block as free and with order 12
             pages[pa / PAGESIZE].free = true;
             pages[pa / PAGESIZE].order = MIN_ORDER;
+            // TODO: because of how get_block works, this order is important
+            free_blocks[0].push_back(btable.get_block(pa));
         } 
     }
     page_lock.unlock(irqs);
     
-    // merge
     for(int row = 0; row < PAGES_COUNT; row++) {
-        merge(row * PAGESIZE);
+        try_merge(row * PAGESIZE);
     }
 }
 
@@ -307,9 +306,9 @@ void kfree(void* ptr) {
     }
 
     // try merging the block
-    // merge() checks whether the freed block’s order-o buddy is also completely free
+    // try_merge() checks whether the freed block’s order-o buddy is also completely free
     // If it is, merge recursively coalesces them into a single free block of order o + 1.
-    return merge(block_addr);
+    return try_merge(block_addr);
 }
 
 // kfree_proc(p)
