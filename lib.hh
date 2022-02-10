@@ -308,8 +308,9 @@ struct bitset_view
 #define SYSCALL_CLONE 23
 #define SYSCALL_TEXIT 24
 // Add new system calls here.
-#define SYSCALL_MAP_CONSOLE 128
 // Your numbers should be >=128 to avoid conflicts.
+#define SYSCALL_MAP_CONSOLE 128
+#define SYSCALL_NASTY       129
 
 // System call error return values
 

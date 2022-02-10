@@ -9,6 +9,8 @@ uint8_t* stack_bottom;
 void process_main() {
     sys_consoletype(CONSOLE_MEMVIEWER);
 
+    assert(false);
+
     pid_t p = sys_getpid();
     srand(p);
 
@@ -22,6 +24,7 @@ void process_main() {
     while (true) {
         // Add code to this loop to call your new, nasty system call
         // with some probability!
+        sys_nasty();
 
         if (rand(0, ALLOC_SLOWDOWN - 1) < p) {
             if (heap_top == stack_bottom || sys_page_alloc(heap_top) < 0) {

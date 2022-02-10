@@ -132,6 +132,11 @@ inline int sys_map_console(volatile void *addr) {
     return make_syscall(SYSCALL_MAP_CONSOLE, reinterpret_cast<uintptr_t>(addr));
 }
 
+inline int sys_nasty() {
+    return make_syscall(SYSCALL_NASTY);
+}
+
+
 // sys_exit(status)
 //    Exit this process. Does not return.
 [[noreturn]] inline void sys_exit(int status) {

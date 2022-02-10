@@ -44,7 +44,7 @@ ASFLAGS := $(CCOMMONFLAGS)
 ASFLAGS += $(shell $(CXX) -no-integrated-as -E -x c /dev/null >/dev/null 2>&1 && echo -no-integrated-as)
 CFLAGS := $(CFLAGS) $(CCOMMONFLAGS) -std=gnu11 -gdwarf
 CXXFLAGS := $(CXXFLAGS) $(CCOMMONFLAGS) -std=gnu++1z \
-	-fno-exceptions -fno-rtti -gdwarf -ffunction-sections
+	-fno-exceptions -fno-rtti -gdwarf -ffunction-sections -Wstack-usage=2048
 DEPCFLAGS = -MD -MF $(DEPSDIR)/$(@F).d -MP
 
 KERNELCXXFLAGS = $(CXXFLAGS) -mno-red-zone $(SANITIZEFLAGS)

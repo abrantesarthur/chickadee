@@ -14,6 +14,7 @@ struct yieldstate;
 struct proc_loader;
 struct elf_program;
 #define PROC_RUNNABLE 1
+#define CANARY 0xabcdef
 
 
 // kernel.hh
@@ -65,6 +66,8 @@ struct __attribute__((aligned(4096))) proc {
 
     int syscall_fork(regstate* regs);
 
+    int syscall_nasty();
+
     uintptr_t syscall_read(regstate* reg);
     uintptr_t syscall_write(regstate* reg);
     uintptr_t syscall_readdiskfile(regstate* reg);
@@ -74,6 +77,9 @@ struct __attribute__((aligned(4096))) proc {
 
  private:
     static int load_segment(const elf_program& ph, proc_loader& ld);
+
+public:
+    int canary = CANARY;
 };
 
 #define NPROC 16

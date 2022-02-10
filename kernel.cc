@@ -213,6 +213,9 @@ uintptr_t proc::syscall(regstate* regs) {
         case SYSCALL_FORK:
             return syscall_fork(regs);
 
+        case SYSCALL_NASTY:
+            return syscall_nasty();
+
         case SYSCALL_READ:
             return syscall_read(regs);
 
@@ -238,6 +241,15 @@ uintptr_t proc::syscall(regstate* regs) {
             log_printf("%d: no such system call %u\n", id_, regs->reg_rax);
             return E_NOSYS;
     }
+}
+
+int proc::syscall_nasty() {
+    int nasty_array[1000];
+    for(int i = 0; i < 1000; i++) {
+        nasty_array[i] = 2;
+    }
+    assert(canary == CANARY);
+    return nasty_array[1] + nasty_array[2];
 }
 
 // proc::syscall_fork(regs)
