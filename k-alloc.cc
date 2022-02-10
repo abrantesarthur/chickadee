@@ -26,7 +26,7 @@ struct blocktable {
         void init();
 
         // TODO: make it return unsigned
-        uintptr_t block_number(int order, uintptr_t addr);
+        uintptr_t block_index(int order, uintptr_t addr);
         block* get_block(uintptr_t addr);
         block* get_block(uintptr_t addr, int order);
         // TODO: can I make this a block method?
@@ -67,13 +67,13 @@ void blocktable::init() {
     }
 }
 
-uintptr_t blocktable::block_number(int order, uintptr_t addr) {
+uintptr_t blocktable::block_index(int order, uintptr_t addr) {
     return addr / ((1<<(order - MIN_ORDER)) * PAGESIZE);
 }
 
 // TODO: there is probably room for improvement!
 int blocktable::get_buddy_addr(int order, uintptr_t addr) {
-    int i = block_number(order, addr);
+    int i = block_index(order, addr);
     uintptr_t offset = (1 << (order - MIN_ORDER)) * PAGESIZE;
     return (i % 2 == 0) ? addr + offset : addr - offset;
 }
@@ -86,7 +86,7 @@ block* blocktable::get_block(uintptr_t addr) {
 
 block* blocktable::get_block(uintptr_t addr, int order) {
     // TODO: is it possible for some page in that block to have different order? assert!
-    uintptr_t i = block_number(order, addr);
+    uintptr_t i = block_index(order, addr);
     return &t_[order - MIN_ORDER][i];
 }
 
@@ -96,8 +96,8 @@ block* blocktable::get_parent(block* b) {
     int p_order = b->order_ + 1;
      // TODO: extract b->index_ % 2 == 0  into left() method
     uintptr_t p_index = b->index_ % 2 == 0 ?  
-        block_number(p_order, b->first_) :
-        block_number(p_order, buddy->first_);
+        block_index(p_order, b->first_) :
+        block_index(p_order, buddy->first_);
     return &t_[p_order - MIN_ORDER ][p_index];
 }
 
