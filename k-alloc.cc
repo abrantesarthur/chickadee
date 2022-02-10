@@ -220,9 +220,6 @@ void* kalloc(size_t sz) {
         //use this block
         ptr = pa2kptr<void*>(blk->first_);
     } else {
-
-        block* left_blk;
-        block* right_blk;
         // find free block with order o > order, minimizing o.
         for(int o = order + 1; o < MAX_ORDER; o++) {
             // if found a block
@@ -237,19 +234,17 @@ void* kalloc(size_t sz) {
         }
 
         // splitting the block as much as possible
+        block* left_blk;
+        block* right_blk;
         for(int o = blk->order_; o > order; o--) {
-            block* child_blk_one = btable.get_block(blk->first_, o - 1);
+            left_blk = btable.get_block(blk->first_, o - 1);
+            right_blk = btable.get_block(left_blk->buddy_addr_, o - 1);  
 
-            log_printf("%d\n", child_blk_one->index_);
-            log_printf("%d\n\n", btable.block_number(o - 1, blk->first_));
-
-            if (btable.block_number(o - 1, blk->first_) % 2 == 0) {  
-                // buddy is after block in physical memory
-                left_blk = &btable.t_[o - MIN_ORDER - 1][btable.block_number(o-1,blk->first_)];
-                right_blk = &btable.t_[o - MIN_ORDER - 1][btable.block_number(o-1, btable.get_buddy_addr(o-1, blk->first_))];   
-            } else { // buddy is before block in physical memory
-                left_blk = &btable.t_[o - MIN_ORDER - 1][btable.block_number(o-1, btable.get_buddy_addr(o-1, blk->first_))];
-                right_blk = &btable.t_[o - MIN_ORDER - 1][btable.block_number(o-1, blk->first_)];
+            // fix order of blocks if necessary
+            if (left_blk->index_ % 2 != 0) {  
+                block* tmp_blk = left_blk;
+                left_blk = right_blk;
+                right_blk = tmp_blk;  
             }
 
             //update pages orders
