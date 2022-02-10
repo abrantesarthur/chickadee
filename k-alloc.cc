@@ -35,7 +35,7 @@ struct blocktable {
         // get address of buddy of block at address 'addr'
         // TODO: make it return uintptr_t.
         int get_buddy_addr(int order, uintptr_t addr);
-        // TODO: make it private
+    private:
         block t_[ORDER_COUNT][PAGES_COUNT];
 };
 
@@ -299,10 +299,7 @@ void kfree(void* ptr) {
     int order = pages[block_addr / PAGESIZE].order;
 
     // get block
-    block* test = btable.get_block(block_addr, order);
-    block* blk = &btable.t_[order - MIN_ORDER][btable.block_number(order, block_addr)];
-    assert(test->first_ == blk->first_);
-    assert(test->last_ == blk->last_);
+    block* blk = btable.get_block(block_addr, order);
 
     // update pages, setting block's pages to free
     for(uintptr_t addr = blk->first_; addr < blk->last_; addr+=PAGESIZE){
