@@ -21,7 +21,10 @@
         "memory_resource": "cpp",
         "memory": "cpp",
         "new": "cpp",
-        "__debug": "cpp"
+        "__debug": "cpp",
+        "bitset": "cpp",
+        "utility": "cpp",
+        "ios": "cpp"
     },
     "C_Cpp.errorSquiggles": "Disabled"
 }

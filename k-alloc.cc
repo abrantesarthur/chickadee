@@ -10,81 +10,58 @@ static uintptr_t next_free_pa;
 #define ORDER_COUNT 10
 
 ////////////////////////////////////////////////////////////////////////////
-// TODO: how to make the properties constant?
-struct block {
-        uintptr_t first_;            // first address in the block
-        uintptr_t last_;            // last address in the block
-        uintptr_t size_;            // size of this block                       
-        uintptr_t buddy_addr_;      // buddy's first address
-        int order_;                 // order of this block
-        int index_;                 // the index of this block
-        list_links link_;
-};
-
-struct blocktable {
-    public:
-        void init();
-
-        // TODO: make it return unsigned
-        uintptr_t block_index(int order, uintptr_t addr);
-        block* get_block(uintptr_t addr);
-        block* get_block(uintptr_t addr, int order);
-        // TODO: can I make this a block method?
-        block* get_parent(block* b);
-        block* get_buddy(block* b);
-
-        // get address of buddy of block at address 'addr'
-        // TODO: make it return uintptr_t.
-        int get_buddy_addr(int order, uintptr_t addr);
-    private:
-        block t_[ORDER_COUNT][PAGES_COUNT];
-};
-
-
 struct page {
     // TODO: make private
     bool free = false;
     int order = MIN_ORDER;
     uintptr_t addr = 0;
-
-    inline uintptr_t block_size();
-    inline uintptr_t block_first();    // first address in block
-    inline uintptr_t block_last();     // last address in block
-    inline uintptr_t buddy_first();
-
-    void try_merge();                   // try merging this page's block with its buddy
+    list_links link_;
+    
+    inline uintptr_t size();
+    inline uintptr_t first();    // first address in block
+    inline uintptr_t last();     // last address in block
+    inline uintptr_t buddy();     // first address of buddy 
+    inline uintptr_t parent();
+    inline bool left();
 };
 
-uintptr_t page::block_size() {
+inline bool left() {
+    return first() % (2 * size()) == 0;
+}
+
+uintptr_t page::size() {
     return 1<<(order);
 }
 
-uintptr_t page::block_first() {
-    return addr - (addr % block_size());
+uintptr_t page::first() {
+    return addr - (addr % size());
 }
 
-uintptr_t page::block_last() {
-    return block_first() + block_size() - 1;
+uintptr_t page::last() {
+    return first() + size() - 1;
 }
 
-uintptr_t page::buddy_first() {
-    bool in_left = block_first() % (2 * block_size()) == 0;
-    return in_left ? block_first() + block_size() : block_first() - block_size();
+uintptr_t page::buddy() {
+    return left() ? first() + size() : first() - size();
+}
+
+uintptr_t page::parent() {
+    // max order block has no parent
+    return (left() || (order == MAX_ORDER)) ? first() : first() - size();
 }
 
 struct pageset {
     void init();
-    void merge_all();
+    void try_merging_all();
+    void try_merge(page* p);
+    page* get_buddy(page* p);   // get first page in buddy block
+    page* get_parent(page* p);
     page ps_[PAGES_COUNT];
 };
 
-// declare datastructure that keeps track of blocks of a given order
-blocktable btable;
 // declare a free_blocks of block structures, each linked by their link_ member
-list<block, &block::link_> free_blocks[ORDER_COUNT];
+list<page, &page::link_> free_blocks[ORDER_COUNT];
 pageset pages;
-
-// |f   |f   |f   |f   |f   |f   |f   |f   |f   |f   |f   |
 
 void pageset::init() {
     auto irqs = page_lock.lock();
@@ -92,125 +69,68 @@ void pageset::init() {
         if(physical_ranges.type(pa) == mem_available) {
             ps_[pa / PAGESIZE].free = true;
             ps_[pa / PAGESIZE].addr = pa;
-            free_blocks[0].push_back(btable.get_block(pa));
+            free_blocks[0].push_back(&ps_[pa / PAGESIZE]);
         }
     }
     page_lock.unlock(irqs);
 
-    merge_all();
+    try_merging_all();
 }
 
-void blocktable::init() {
-    block* b;
-    for (int o = 0; o < ORDER_COUNT; o++) {
-        for (int i = 0; i < PAGES_COUNT / (1 << o); i++) {
-            // set begin and end addresses of block of memory of given o
-            b = &t_[o][i];
-            b->size_ = (1<<(o)) * PAGESIZE;
-            b->first_ = i * b->size_;
-            b->last_ = b->first_ + b->size_ - 1;
-            b->buddy_addr_ = ((i % 2) == 0) ? b->last_ + 1 : b->first_ - b->size_;
-            b->order_ = o + MIN_ORDER;
-            b->index_ = i;
-        }
-    }
+page* pageset::get_buddy(page* p) {
+    return ps_[p->buddy() / PAGESIZE];
 }
 
-// TODO: can I refactor this to use t_ somehow? What about iterating over t_[o] list, looking for pa!!!
-uintptr_t blocktable::block_index(int order, uintptr_t addr) {
-    return addr / ((1<<(order - MIN_ORDER)) * PAGESIZE);
+page* pageset::get_parent(page* p) {
+    return ps_[p->parent() / PAGESIZE];
 }
-
-// TODO: this only works if pa is 512 aligned
-block* blocktable::get_block(uintptr_t addr) {
-    // TODO: somewhere assert that all pages within a block have the same order
-    return get_block(addr, pages.ps_[addr / PAGESIZE].order);
-}
-
-// TODO: this should be a method of block
-block* blocktable::get_buddy(block* b) {
-    return get_block(b->buddy_addr_, b->order_);
-}
-
-block* blocktable::get_block(uintptr_t addr, int order) {
-    assert(order >= MIN_ORDER && order <= MAX_ORDER);
-
-    // get block index into blocktable
-     uintptr_t i = block_index(order, addr);
-    return &t_[order - MIN_ORDER][i];
-
-}
-
-// TODO: make this a method of block*
-block* blocktable::get_parent(block* b) {
-    block* buddy = get_block(b->buddy_addr_);
-    int p_order = b->order_ + 1;
-     // TODO: extract b->index_ % 2 == 0  into left() method
-    uintptr_t p_index = b->index_ % 2 == 0 ?  
-        block_index(p_order, b->first_) :
-        block_index(p_order, buddy->first_);
-    return &t_[p_order - MIN_ORDER ][p_index];
-}
-
-// TODO: there is probably room for improvement!
-int blocktable::get_buddy_addr(int order, uintptr_t addr) {
-    int i = block_index(order, addr);
-    uintptr_t offset = (1 << (order - MIN_ORDER)) * PAGESIZE;
-    return (i % 2 == 0) ? addr + offset : addr - offset;
-}
-
 
 // TODO: should I always protect pages? What else should I protect? Some of these operations should be atomic
-void try_merge(uintptr_t pa) {
-    block* blk = btable.get_block(pa);
+void pageset::try_merge(page* p) {
 
-    // TODO: add iteration support to block_pages (e.g., va, next, etc);
-    // only proceed if all pages within the block are free
-    for(uintptr_t addr = blk->first_; addr < blk->last_; addr+=PAGESIZE) {
+    // check if all pages within the block are free
+    for(uintptr_t addr = p->first(); addr < p->last(); addr+=PAGESIZE) {
+        // TODO: improve this
         if(pages.ps_[addr / PAGESIZE].free == 0) {
             return;
         }
     }
 
     // get buddy
-    block* buddy = btable.get_block(blk->buddy_addr_);
+    page* b = get_buddy(p);
 
-    // only proceed if all pages within the buddy are free
-    for(uintptr_t addr = buddy->first_; addr < buddy->last_; addr+=PAGESIZE) {
+    // check if all pages within the block are free
+    for(uintptr_t addr = b->first(); addr < b->last(); addr+=PAGESIZE) {
+         // TODO: improve this
         if(pages.ps_[addr / PAGESIZE].free == 0) {
             return;
         }
     }
 
     //buddy and block must have the same order
-    if(buddy->order_ != blk->order_) {
+    // TODO: should i check all pages?
+    if(p->order == b->order) {
         return;
     }
+    
 
-    // get parent block
-    block* parent_blk = btable.get_parent(blk);
-
-    // merge
-    free_blocks[blk->order_ - MIN_ORDER].erase(blk);
-    free_blocks[blk->order_ - MIN_ORDER].erase(buddy);
-    free_blocks[blk->order_ + 1 - MIN_ORDER].push_back(parent_blk);
-
-    //update pages
-    for(uintptr_t addr = blk->first_; addr < blk->last_; addr+=PAGESIZE) {
-        pages.ps_[blk->first_ / PAGESIZE].order = blk->order_ + 1;
+    // merge by increasing order of pages and updating free_blocks
+    page* parent = get_parent(p);
+    for(uintptr_t addr = parent->first(); addr < parent->last(); addr+= PAGESIZE) {
+        ps_[addr].order = p->order + 1;
     }
-    for(uintptr_t addr = buddy->first_; addr < buddy->last_; addr+=PAGESIZE) {
-        pages.ps_[buddy->first_ / PAGESIZE].order = blk->order_ + 1;
-    }
+    free_blocks[p->order - MIN_ORDER].erase(p);
+    free_blocks[b->order - MIN_ORDER].erase(b);
+    free_blocks[p->order + 1 - MIN_ORDER].push_back(p);
 
-    try_merge(parent_blk->first_);   
+    try_merge(parent);   
 }
 
 // TODO: rename to try_merge
 // TODO: make it iterate over pages
-void pageset::merge_all() {
-    for(int pa = 0; pa < PAGES_COUNT * PAGESIZE; pa += PAGESIZE) {
-        try_merge(pa);
+void pageset::try_merging_all() {
+    for(int i = 0; i < PAGES_COUNT; i++) {
+        try_merge(&ps_[i]);
     }
 }
 
@@ -218,7 +138,6 @@ void pageset::merge_all() {
 //    Initialize stuff needed by `kalloc`. Called from `init_hardware`,
 //    after `physical_ranges` is initialized.
 void init_kalloc() {
-    btable.init();
     pages.init();
 }
 
