@@ -153,9 +153,17 @@ void proc::exception(regstate* regs) {
 //    The register values from system call time are stored in `regs`.
 //    The return value from `proc::syscall()` is returned to the user
 //    process in `%rax`.
-
 uintptr_t proc::syscall(regstate* regs) {
+    uintptr_t ret_val = unsafe_syscall(regs);
+    assert(canary = PROC_CANARY);
+    return ret_val;
+}
 
+
+// proc::unsafe_syscall(regs)
+//      same as proc::syscall(regs), but does not assert
+//      the stack canary is valid.
+uintptr_t proc::unsafe_syscall(regstate* regs) {
 
     // Record most recent user-mode %rip.
     recent_user_rip_ = regs->reg_rip;
@@ -247,8 +255,6 @@ int proc::syscall_nasty() {
     for(int i = 0; i < 1000; i++) {
         nasty_array[i] = 2;
     }
-    assert(canary == CANARY);
-    
     return nasty_array[1] + nasty_array[2];
 }
 
