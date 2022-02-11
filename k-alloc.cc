@@ -261,44 +261,49 @@ void* kalloc(size_t sz) {
 //    Free a pointer previously returned by `kalloc`. Does nothing if
 //    `ptr == nullptr`.
 void kfree(void* ptr) {
+        if (ptr)
+    {
+        // tell sanitizers the freed page is inaccessible
+        asan_mark_memory(ka2pa(ptr), PAGESIZE, true);
+    }
+    log_printf("kfree not implemented yet\n");
+    // // do nothing if ptr == nullptr
+    // if (!ptr) {
+    //     return;
+    // }
+
+    // // convert to physical address
+    // uintptr_t block_pa = ka2pa(ptr);
+
+    // // prevent freeing reserved memory
+    // if(physical_ranges.type(block_pa) != mem_available) {
+    //     return;
+    // }
+
+    // // tell sanitizers the freed page is inaccessible
+    // asan_mark_memory(block_pa, PAGESIZE, true);
     
-    // do nothing if ptr == nullptr
-    if (!ptr) {
-        return;
-    }
 
-    // convert to physical address
-    uintptr_t block_pa = ka2pa(ptr);
+    // // get block
+    // int order = pages.ps_[block_pa / PAGESIZE].order;
+    // block* blk = btable.get_block(block_pa, order);
 
-    // prevent freeing reserved memory
-    if(physical_ranges.type(block_pa) != mem_available) {
-        return;
-    }
+    // // free pages within that block
+    // for(uintptr_t addr = blk->first_; addr < blk->last_; addr+=PAGESIZE){
+    //     // assert that pages within the block have the same order and are notfree
+    //     assert(pages.ps_[addr / PAGESIZE].free == false);
+    //     assert(pages.ps_[addr / PAGESIZE].order == order);
 
-    // tell sanitizers the freed page is inaccessible
-    asan_mark_memory(block_pa, PAGESIZE, true);
-    
+    //     // free pages
+    //     pages.ps_[addr / PAGESIZE].free = true;
+    // }
 
-    // get block
-    int order = pages.ps_[block_pa / PAGESIZE].order;
-    block* blk = btable.get_block(block_pa, order);
+    // // TODO: should I not also add it to free_list?
 
-    // free pages within that block
-    for(uintptr_t addr = blk->first_; addr < blk->last_; addr+=PAGESIZE){
-        // assert that pages within the block have the same order and are notfree
-        assert(pages.ps_[addr / PAGESIZE].free == false);
-        assert(pages.ps_[addr / PAGESIZE].order == order);
-
-        // free pages
-        pages.ps_[addr / PAGESIZE].free = true;
-    }
-
-    // TODO: should I not also add it to free_list?
-
-    // try merging the block
-    // try_merge() checks whether the freed block’s order-o buddy is also completely free
-    // If it is, merge recursively coalesces them into a single free block of order o + 1.
-    return try_merge(block_pa);
+    // // try merging the block
+    // // try_merge() checks whether the freed block’s order-o buddy is also completely free
+    // // If it is, merge recursively coalesces them into a single free block of order o + 1.
+    // return try_merge(block_pa);
 }
 
 // kfree_proc(p)
