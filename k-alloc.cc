@@ -155,77 +155,106 @@ void init_kalloc() {
 //    The handout code does not free memory and allocates memory in units
 //    of pages.
 void* kalloc(size_t sz) {
-    //calculate order of allocation
-    int order = msb(sz - 1);
-
-    if(order > MAX_ORDER || order < MIN_ORDER) {
+       if (sz == 0 || sz > PAGESIZE)
+    {
         return nullptr;
     }
 
+    auto irqs = page_lock.lock();
+    void *ptr = nullptr;
 
-    void* ptr = nullptr;
-
-    // find a free block with desired order 
-    block* blk = free_blocks[order - MIN_ORDER].pop_front();
-    if (blk) {
-        //use this block
-        ptr = pa2kptr<void*>(blk->first_);
-    } else {
-        // find free block with order o > order, minimizing o.
-        for(int o = order + 1; o < MAX_ORDER; o++) {
-            // if found a block
-            blk = free_blocks[o - MIN_ORDER].pop_front();
-            if(blk) {
-                break;
-            }
+    // skip over reserved and kernel memory
+    for (; next_free_pa < physical_ranges.limit(); next_free_pa += PAGESIZE)
+    {
+        if (physical_ranges.type(next_free_pa) == mem_available)
+        {
+            ptr = pa2kptr<void *>(next_free_pa);
+            next_free_pa += PAGESIZE;
+            break;
         }
-
-        if(!blk) {
-            // return nullptr
-            return nullptr;
-        }
-
-        // splitting the block as much as possible
-        block* left_blk;
-        block* right_blk;
-        for(int o = blk->order_; o > order; o--) {
-            left_blk = btable.get_block(blk->first_, o - 1);
-            right_blk = btable.get_block(left_blk->buddy_addr_, o - 1);  
-
-            // swap blocks if necessary
-            if (left_blk->index_ % 2 != 0) {  
-                block* tmp_blk = left_blk;
-                left_blk = right_blk;
-                right_blk = tmp_blk;  
-            }
-
-            //update pages orders
-            // TODO: should I not update all pages within that block
-            pages.ps_[left_blk->first_ / PAGESIZE].order = o - 1;
-            pages.ps_[right_blk->first_ / PAGESIZE].order = o - 1;
-
-            //update free_blocks
-            free_blocks[o - MIN_ORDER - 1].push_back(right_blk);
-            blk = left_blk;
-        }
-    
-        //use this block
-        ptr = pa2kptr<void*>(blk->first_);
     }
 
-    // set block's free status to false
-    for (uintptr_t addr = blk->first_; addr < blk->last_; addr += PAGESIZE) {
-        pages.ps_[addr / PAGESIZE].free = false; 
-    }
+    page_lock.unlock(irqs);
 
-    if (ptr) {
+    if (ptr)
+    {
         // tell sanitizers the allocated page is accessible
-        asan_mark_memory(ka2pa(ptr), (1 << order), false);
-        // initialize to `int3` | NOT SURE
-        memset(ptr, 0xCC, (1 << order)); 
+        asan_mark_memory(ka2pa(ptr), PAGESIZE, false);
+        // initialize to `int3`
+        memset(ptr, 0xCC, PAGESIZE);
     }
-
     return ptr;
+    // //calculate order of allocation
+    // int order = msb(sz - 1);
+
+    // if(order > MAX_ORDER || order < MIN_ORDER) {
+    //     return nullptr;
+    // }
+
+
+    // void* ptr = nullptr;
+
+    // // find a free block with desired order 
+    // block* blk = free_blocks[order - MIN_ORDER].pop_front();
+    // if (blk) {
+    //     //use this block
+    //     ptr = pa2kptr<void*>(blk->first_);
+    // } else {
+    //     // find free block with order o > order, minimizing o.
+    //     for(int o = order + 1; o < MAX_ORDER; o++) {
+    //         // if found a block
+    //         blk = free_blocks[o - MIN_ORDER].pop_front();
+    //         if(blk) {
+    //             break;
+    //         }
+    //     }
+
+    //     if(!blk) {
+    //         // return nullptr
+    //         return nullptr;
+    //     }
+
+    //     // splitting the block as much as possible
+    //     block* left_blk;
+    //     block* right_blk;
+    //     for(int o = blk->order_; o > order; o--) {
+    //         left_blk = btable.get_block(blk->first_, o - 1);
+    //         right_blk = btable.get_block(left_blk->buddy_addr_, o - 1);  
+
+    //         // swap blocks if necessary
+    //         if (left_blk->index_ % 2 != 0) {  
+    //             block* tmp_blk = left_blk;
+    //             left_blk = right_blk;
+    //             right_blk = tmp_blk;  
+    //         }
+
+    //         //update pages orders
+    //         // TODO: should I not update all pages within that block
+    //         pages.ps_[left_blk->first_ / PAGESIZE].order = o - 1;
+    //         pages.ps_[right_blk->first_ / PAGESIZE].order = o - 1;
+
+    //         //update free_blocks
+    //         free_blocks[o - MIN_ORDER - 1].push_back(right_blk);
+    //         blk = left_blk;
+    //     }
+    
+    //     //use this block
+    //     ptr = pa2kptr<void*>(blk->first_);
+    // }
+
+    // // set block's free status to false
+    // for (uintptr_t addr = blk->first_; addr < blk->last_; addr += PAGESIZE) {
+    //     pages.ps_[addr / PAGESIZE].free = false; 
+    // }
+
+    // if (ptr) {
+    //     // tell sanitizers the allocated page is accessible
+    //     asan_mark_memory(ka2pa(ptr), (1 << order), false);
+    //     // initialize to `int3` | NOT SURE
+    //     memset(ptr, 0xCC, (1 << order)); 
+    // }
+
+    // return ptr;
 }
 
 // kfree(ptr)
