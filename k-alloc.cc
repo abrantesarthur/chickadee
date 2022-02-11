@@ -42,13 +42,39 @@ struct blocktable {
 
 
 struct page {
+    // TODO: make private
     bool free = false;
     int order = MIN_ORDER;
+    uintptr_t addr = 0;
+
+    inline uintptr_t block_size();
+    inline uintptr_t block_first();    // first address in block
+    inline uintptr_t block_last();     // last address in block
+    inline uintptr_t buddy_first();
+
+    void try_merge();                   // try merging this page's block with its buddy
 };
+
+uintptr_t page::block_size() {
+    return 1<<(order);
+}
+
+uintptr_t page::block_first() {
+    return addr - (addr % block_size());
+}
+
+uintptr_t page::block_last() {
+    return block_first() + block_size() - 1;
+}
+
+uintptr_t page::buddy_first() {
+    bool in_left = block_first() % (2 * block_size()) == 0;
+    return in_left ? block_first() + block_size() : block_first() - block_size();
+}
 
 struct pageset {
     void init();
-
+    void merge_all();
     page ps_[PAGES_COUNT];
 };
 
@@ -64,15 +90,15 @@ void pageset::init() {
     auto irqs = page_lock.lock();
     for(uintptr_t pa = 0; pa < physical_ranges.limit(); pa += PAGESIZE) {
         if(physical_ranges.type(pa) == mem_available) {
-            // mark page as free
             ps_[pa / PAGESIZE].free = true;
+            ps_[pa / PAGESIZE].addr = pa;
             free_blocks[0].push_back(btable.get_block(pa));
         }
     }
     page_lock.unlock(irqs);
+
+    merge_all();
 }
-
-
 
 void blocktable::init() {
     block* b;
@@ -133,11 +159,10 @@ int blocktable::get_buddy_addr(int order, uintptr_t addr) {
     return (i % 2 == 0) ? addr + offset : addr - offset;
 }
 
-////////////////////////////////////////////////////////////////////////////
-
 
 // TODO: should I always protect pages? What else should I protect? Some of these operations should be atomic
-void try_merge(block* blk) {
+void try_merge(uintptr_t pa) {
+    block* blk = btable.get_block(pa);
 
     // TODO: add iteration support to block_pages (e.g., va, next, etc);
     // only proceed if all pages within the block are free
@@ -178,10 +203,16 @@ void try_merge(block* blk) {
         pages.ps_[buddy->first_ / PAGESIZE].order = blk->order_ + 1;
     }
 
-    block* b = btable.get_block(parent_blk->first_);
-    try_merge(b);   
+    try_merge(parent_blk->first_);   
 }
 
+// TODO: rename to try_merge
+// TODO: make it iterate over pages
+void pageset::merge_all() {
+    for(int pa = 0; pa < PAGES_COUNT * PAGESIZE; pa += PAGESIZE) {
+        try_merge(pa);
+    }
+}
 
 // init_kalloc
 //    Initialize stuff needed by `kalloc`. Called from `init_hardware`,
@@ -189,10 +220,6 @@ void try_merge(block* blk) {
 void init_kalloc() {
     btable.init();
     pages.init();
-    for(int pa = 0; pa < PAGES_COUNT * PAGESIZE; pa += PAGESIZE) {
-        block* b = btable.get_block(pa);
-        try_merge(b);
-    }
 }
 
 // kalloc(sz)
@@ -323,8 +350,7 @@ void kfree(void* ptr) {
     // try merging the block
     // try_merge() checks whether the freed block’s order-o buddy is also completely free
     // If it is, merge recursively coalesces them into a single free block of order o + 1.
-    block* b = btable.get_block(block_pa);
-    return try_merge(b);
+    return try_merge(block_pa);
 }
 
 // kfree_proc(p)
