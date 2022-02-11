@@ -9,7 +9,6 @@ static uintptr_t next_free_pa;
 #define MAX_ORDER 21
 #define ORDER_COUNT 10
 
-////////////////////////////////////////////////////////////////////////////
 struct page {
     // TODO: make private
     bool free = false;
@@ -25,34 +24,34 @@ struct page {
     inline bool left();
 };
 
-inline bool left() {
+inline bool page::left() {
     return first() % (2 * size()) == 0;
 }
 
-uintptr_t page::size() {
+inline uintptr_t page::size() {
     return 1<<(order);
 }
 
-uintptr_t page::first() {
+inline uintptr_t page::first() {
     return addr - (addr % size());
 }
 
-uintptr_t page::last() {
+inline uintptr_t page::last() {
     return first() + size() - 1;
 }
 
-uintptr_t page::buddy() {
+inline uintptr_t page::buddy() {
     return left() ? first() + size() : first() - size();
 }
 
-uintptr_t page::parent() {
+inline uintptr_t page::parent() {
     // max order block has no parent
     return (left() || (order == MAX_ORDER)) ? first() : first() - size();
 }
 
 struct pageset {
     void init();
-    void try_merging_all();
+    void try_merge_all();
     void try_merge(page* p);
     page* get_buddy(page* p);   // get first page in buddy block
     page* get_parent(page* p);
@@ -73,16 +72,15 @@ void pageset::init() {
         }
     }
     page_lock.unlock(irqs);
-
-    try_merging_all();
+    try_merge_all();
 }
 
 page* pageset::get_buddy(page* p) {
-    return ps_[p->buddy() / PAGESIZE];
+    return &ps_[p->buddy() / PAGESIZE];
 }
 
 page* pageset::get_parent(page* p) {
-    return ps_[p->parent() / PAGESIZE];
+    return &ps_[p->parent() / PAGESIZE];
 }
 
 // TODO: should I always protect pages? What else should I protect? Some of these operations should be atomic
@@ -126,9 +124,7 @@ void pageset::try_merge(page* p) {
     try_merge(parent);   
 }
 
-// TODO: rename to try_merge
-// TODO: make it iterate over pages
-void pageset::try_merging_all() {
+void pageset::try_merge_all() {
     for(int i = 0; i < PAGES_COUNT; i++) {
         try_merge(&ps_[i]);
     }
@@ -138,7 +134,7 @@ void pageset::try_merging_all() {
 //    Initialize stuff needed by `kalloc`. Called from `init_hardware`,
 //    after `physical_ranges` is initialized.
 void init_kalloc() {
-    pages.init();
+    // pages.init();
 }
 
 // kalloc(sz)
@@ -155,7 +151,7 @@ void init_kalloc() {
 //    The handout code does not free memory and allocates memory in units
 //    of pages.
 void* kalloc(size_t sz) {
-       if (sz == 0 || sz > PAGESIZE)
+    if (sz == 0 || sz > PAGESIZE)
     {
         return nullptr;
     }

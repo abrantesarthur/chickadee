@@ -40,6 +40,7 @@ void init_hardware() {
     // kernel and reserved physical memory
     init_physical_ranges();
 
+
     // initialize kernel allocator
     init_kalloc();
 
