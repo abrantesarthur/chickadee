@@ -58,6 +58,8 @@ blocktable btable;
 list<block, &block::link_> free_blocks[ORDER_COUNT];
 pageset pages;
 
+// |f   |f   |f   |f   |f   |f   |f   |f   |f   |f   |f   |
+
 void pageset::init() {
     auto irqs = page_lock.lock();
     for(uintptr_t pa = 0; pa < physical_ranges.limit(); pa += PAGESIZE) {
@@ -65,7 +67,7 @@ void pageset::init() {
             // mark page as free
             ps_[pa / PAGESIZE].free = true;
             free_blocks[0].push_back(btable.get_block(pa));
-        } 
+        }
     }
     page_lock.unlock(irqs);
 }
@@ -135,11 +137,7 @@ int blocktable::get_buddy_addr(int order, uintptr_t addr) {
 
 
 // TODO: should I always protect pages? What else should I protect? Some of these operations should be atomic
-// TODO: have it take a block as an argument
-void try_merge(uintptr_t block_addr) {
-    //get block
-    block* blk = btable.get_block(block_addr);
-
+void try_merge(block* blk) {
 
     // TODO: add iteration support to block_pages (e.g., va, next, etc);
     // only proceed if all pages within the block are free
@@ -180,7 +178,8 @@ void try_merge(uintptr_t block_addr) {
         pages.ps_[buddy->first_ / PAGESIZE].order = blk->order_ + 1;
     }
 
-    try_merge(parent_blk->first_);   
+    block* b = btable.get_block(parent_blk->first_);
+    try_merge(b);   
 }
 
 
@@ -190,9 +189,9 @@ void try_merge(uintptr_t block_addr) {
 void init_kalloc() {
     btable.init();
     pages.init();
-    
-    for(int row = 0; row < PAGES_COUNT; row++) {
-        try_merge(row * PAGESIZE);
+    for(int pa = 0; pa < PAGES_COUNT * PAGESIZE; pa += PAGESIZE) {
+        block* b = btable.get_block(pa);
+        try_merge(b);
     }
 }
 
@@ -324,7 +323,8 @@ void kfree(void* ptr) {
     // try merging the block
     // try_merge() checks whether the freed block’s order-o buddy is also completely free
     // If it is, merge recursively coalesces them into a single free block of order o + 1.
-    return try_merge(block_pa);
+    block* b = btable.get_block(block_pa);
+    return try_merge(b);
 }
 
 // kfree_proc(p)
