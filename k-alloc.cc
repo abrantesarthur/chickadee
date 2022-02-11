@@ -10,7 +10,6 @@ static uintptr_t next_free_pa;
 #define ORDER_COUNT 10
 
 struct page {
-    // TODO: make private
     bool free = false;
     int order = MIN_ORDER;
     uintptr_t addr = 0;
@@ -53,8 +52,11 @@ struct pageset {
     void init();
     void try_merge_all();
     void try_merge(page* p);
+    page* get_page(uintptr_t addr);
     page* get_buddy(page* p);   // get first page in buddy block
     page* get_parent(page* p);
+    void decrement_order(page*p);
+    void free(page* p);
     page ps_[PAGES_COUNT];
 };
 
@@ -75,6 +77,12 @@ void pageset::init() {
     try_merge_all();
 }
 
+
+page* pageset::get_page(uintptr_t addr) {
+    return &ps_[addr / PAGESIZE];
+}
+
+
 page* pageset::get_buddy(page* p) {
     return &ps_[p->buddy() / PAGESIZE];
 }
@@ -82,6 +90,7 @@ page* pageset::get_buddy(page* p) {
 page* pageset::get_parent(page* p) {
     return &ps_[p->parent() / PAGESIZE];
 }
+
 
 // TODO: should I always protect pages? What else should I protect? Some of these operations should be atomic
 void pageset::try_merge(page* p) {
@@ -130,11 +139,26 @@ void pageset::try_merge_all() {
     }
 }
 
+void pageset::decrement_order(page* p) {
+    if(p->order == MIN_ORDER) {
+        return;
+    }
+    for(uintptr_t addr = p->first(); addr < p->last(); addr += PAGESIZE) {
+        --ps_[addr / PAGESIZE].order;
+    }
+}
+
+void pageset::free(page* p) {
+    for (uintptr_t addr = p->first(); addr < p->last(); addr += PAGESIZE) {
+        ps_[addr / PAGESIZE].free = false; 
+    }
+}
+
 // init_kalloc
 //    Initialize stuff needed by `kalloc`. Called from `init_hardware`,
 //    after `physical_ranges` is initialized.
 void init_kalloc() {
-    // pages.init();
+    pages.init();
 }
 
 // kalloc(sz)
@@ -151,155 +175,90 @@ void init_kalloc() {
 //    The handout code does not free memory and allocates memory in units
 //    of pages.
 void* kalloc(size_t sz) {
-    if (sz == 0 || sz > PAGESIZE)
-    {
+    //calculate order of allocation
+    int order = msb(sz - 1);
+
+    if(order > MAX_ORDER || order < MIN_ORDER) {
         return nullptr;
     }
 
-    auto irqs = page_lock.lock();
-    void *ptr = nullptr;
 
-    // skip over reserved and kernel memory
-    for (; next_free_pa < physical_ranges.limit(); next_free_pa += PAGESIZE)
-    {
-        if (physical_ranges.type(next_free_pa) == mem_available)
-        {
-            ptr = pa2kptr<void *>(next_free_pa);
-            next_free_pa += PAGESIZE;
-            break;
+    void* ptr = nullptr;
+
+    // find a free block with desired order 
+    page* p = free_blocks[order - MIN_ORDER].pop_front();
+    if (p) {
+        //use this block
+        ptr = pa2kptr<void*>(p->first());
+    } else {
+        // find free block with order o > order, minimizing o.
+        for(int o = order + 1; o < MAX_ORDER; o++) {
+            // if found a block
+            p = free_blocks[o - MIN_ORDER].pop_front();
+            if(p) {
+                break;
+            }
         }
-    }
 
-    page_lock.unlock(irqs);
+        if(!p) {
+            // return nullptr
+            return nullptr;
+        }
 
-    if (ptr)
-    {
-        // tell sanitizers the allocated page is accessible
-        asan_mark_memory(ka2pa(ptr), PAGESIZE, false);
-        // initialize to `int3`
-        memset(ptr, 0xCC, PAGESIZE);
-    }
-    return ptr;
-    // //calculate order of allocation
-    // int order = msb(sz - 1);
-
-    // if(order > MAX_ORDER || order < MIN_ORDER) {
-    //     return nullptr;
-    // }
-
-
-    // void* ptr = nullptr;
-
-    // // find a free block with desired order 
-    // block* blk = free_blocks[order - MIN_ORDER].pop_front();
-    // if (blk) {
-    //     //use this block
-    //     ptr = pa2kptr<void*>(blk->first_);
-    // } else {
-    //     // find free block with order o > order, minimizing o.
-    //     for(int o = order + 1; o < MAX_ORDER; o++) {
-    //         // if found a block
-    //         blk = free_blocks[o - MIN_ORDER].pop_front();
-    //         if(blk) {
-    //             break;
-    //         }
-    //     }
-
-    //     if(!blk) {
-    //         // return nullptr
-    //         return nullptr;
-    //     }
-
-    //     // splitting the block as much as possible
-    //     block* left_blk;
-    //     block* right_blk;
-    //     for(int o = blk->order_; o > order; o--) {
-    //         left_blk = btable.get_block(blk->first_, o - 1);
-    //         right_blk = btable.get_block(left_blk->buddy_addr_, o - 1);  
-
-    //         // swap blocks if necessary
-    //         if (left_blk->index_ % 2 != 0) {  
-    //             block* tmp_blk = left_blk;
-    //             left_blk = right_blk;
-    //             right_blk = tmp_blk;  
-    //         }
-
-    //         //update pages orders
-    //         // TODO: should I not update all pages within that block
-    //         pages.ps_[left_blk->first_ / PAGESIZE].order = o - 1;
-    //         pages.ps_[right_blk->first_ / PAGESIZE].order = o - 1;
-
-    //         //update free_blocks
-    //         free_blocks[o - MIN_ORDER - 1].push_back(right_blk);
-    //         blk = left_blk;
-    //     }
+        // splitting the block as much as possible
+        while(p->order > order) {
+            pages.decrement_order(p);
+            free_blocks[p->order - MIN_ORDER].push_back(pages.get_buddy(p));
+        }
     
-    //     //use this block
-    //     ptr = pa2kptr<void*>(blk->first_);
-    // }
+        //use this block
+        ptr = pa2kptr<void*>(p->first());
+    }
 
-    // // set block's free status to false
-    // for (uintptr_t addr = blk->first_; addr < blk->last_; addr += PAGESIZE) {
-    //     pages.ps_[addr / PAGESIZE].free = false; 
-    // }
+    // set block's free status to false
+    pages.free(p);
 
-    // if (ptr) {
-    //     // tell sanitizers the allocated page is accessible
-    //     asan_mark_memory(ka2pa(ptr), (1 << order), false);
-    //     // initialize to `int3` | NOT SURE
-    //     memset(ptr, 0xCC, (1 << order)); 
-    // }
+    if (ptr) {
+        // tell sanitizers the allocated page is accessible
+        asan_mark_memory(ka2pa(ptr), (1 << order), false);
+        // initialize to `int3` | NOT SURE
+        memset(ptr, 0xCC, (1 << order)); 
+    }
 
-    // return ptr;
+    return ptr;
 }
 
 // kfree(ptr)
 //    Free a pointer previously returned by `kalloc`. Does nothing if
 //    `ptr == nullptr`.
 void kfree(void* ptr) {
-        if (ptr)
-    {
-        // tell sanitizers the freed page is inaccessible
-        asan_mark_memory(ka2pa(ptr), PAGESIZE, true);
+    // do nothing if ptr == nullptr
+    if (!ptr) {
+        return;
     }
-    log_printf("kfree not implemented yet\n");
-    // // do nothing if ptr == nullptr
-    // if (!ptr) {
-    //     return;
-    // }
 
-    // // convert to physical address
-    // uintptr_t block_pa = ka2pa(ptr);
+    // convert to physical address
+    uintptr_t block_pa = ka2pa(ptr);
 
-    // // prevent freeing reserved memory
-    // if(physical_ranges.type(block_pa) != mem_available) {
-    //     return;
-    // }
+    // prevent freeing reserved memory
+    if(physical_ranges.type(block_pa) != mem_available) {
+        return;
+    }
 
-    // // tell sanitizers the freed page is inaccessible
-    // asan_mark_memory(block_pa, PAGESIZE, true);
+    // tell sanitizers the freed page is inaccessible
+    asan_mark_memory(block_pa, PAGESIZE, true);
     
 
-    // // get block
-    // int order = pages.ps_[block_pa / PAGESIZE].order;
-    // block* blk = btable.get_block(block_pa, order);
+    // free pages within that block
+    page* p = pages.get_page(block_pa);
+    pages.free(p);
 
-    // // free pages within that block
-    // for(uintptr_t addr = blk->first_; addr < blk->last_; addr+=PAGESIZE){
-    //     // assert that pages within the block have the same order and are notfree
-    //     assert(pages.ps_[addr / PAGESIZE].free == false);
-    //     assert(pages.ps_[addr / PAGESIZE].order == order);
+    // TODO: should I not also add it to free_list?
 
-    //     // free pages
-    //     pages.ps_[addr / PAGESIZE].free = true;
-    // }
-
-    // // TODO: should I not also add it to free_list?
-
-    // // try merging the block
-    // // try_merge() checks whether the freed block’s order-o buddy is also completely free
-    // // If it is, merge recursively coalesces them into a single free block of order o + 1.
-    // return try_merge(block_pa);
+    // try merging the block
+    // try_merge() checks whether the freed block’s order-o buddy is also completely free
+    // If it is, merge recursively coalesces them into a single free block of order o + 1.
+    return pages.try_merge(p);
 }
 
 // kfree_proc(p)
