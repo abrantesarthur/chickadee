@@ -254,13 +254,16 @@ void pageset::try_merge(page* p) {
         }
     }
 
-    log_printf("BEFORE: \n");
+    log_printf("block: ");
+    p->print_page();
     print_freeblocks(10);
+
 
     // merge by increasing order of pages and updating free_blocks
     // TODO: improve this
     uintptr_t first = p->first();
     uintptr_t last = p->last();
+    page* parent = p->left() ? p : b;
     for(uintptr_t addr = first; addr < last; addr += PAGESIZE) {
         ps_[index(addr)].order += 1;
     }
@@ -272,22 +275,12 @@ void pageset::try_merge(page* p) {
 
     free_blocks[order - MIN_ORDER].erase(p);
     free_blocks[order - MIN_ORDER].erase(b);
-
-    // TODO: make sure that only one parent gets pushed to the upper level!
-
-    page* parent = p->left() ? p : b;
     free_blocks[order + 1 - MIN_ORDER].push_back(parent);
 
-    
-
-    // log_printf("AFTER: \n");
-    // print_freeblocks(10);
-    // log_printf("\n\n");
-
-    // // TODO: push parent here!
-    
-
-
+    log_printf("paren: ");
+    parent->print_page();
+    log_printf("\n\n");
+    try_merge(parent);
 }
 
 // init_kalloc
