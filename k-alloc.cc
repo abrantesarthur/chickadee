@@ -114,7 +114,8 @@ struct page {
     inline uintptr_t size();    // size of the block
     inline uintptr_t first();    // first address in block
     inline uintptr_t last();     // last address in block
-    inline bool left();
+    inline uintptr_t middle();  // middle address in the block
+    inline bool is_left();
     inline uintptr_t buddy();     // first address of buddy 
     inline uintptr_t parent(); 
     inline void print_page();
@@ -132,17 +133,22 @@ inline uintptr_t page::last() {
     return first() + size() - 1;
 }
 
-inline bool page::left() {
+inline uintptr_t page::middle() {
+    return first() + size() / 2;
+}
+
+// TODO: comment that this is in relation to parent
+inline bool page::is_left() {
     return first() % (2 * size()) == 0;
 }
 
 inline uintptr_t page::buddy() {
-    return left() ? first() + size() : first() - size();
+    return is_left() ? first() + size() : first() - size();
 }
 
 inline uintptr_t page::parent() {
     // max order block has no parent
-    return (left() || (order == MAX_ORDER)) ? first() : first() - size();
+    return (is_left() || (order == MAX_ORDER)) ? first() : first() - size();
 }
 
 inline void page::print_page() {
@@ -157,17 +163,29 @@ struct pageset {
     page* get_buddy(page* p);   // get first page in buddy block
     page* get_parent(page* p);
     void decrement_order(page*p);
-    void free(page* p);
+    void set_status(page* p, pagestatus_t s);     // update block's status
+    void free(page* p);     // free the block
+    void allocate(page* p);     // allocate the block
+    bool is_free(page* b);  // returns true if all pages within block are free
     uintptr_t index(uintptr_t addr);  // get the index of page at address addr
     page ps_[PAGES_COUNT];
 
     // helper functions
+    void print_block(page* p);
     void print_pageset();
 };
 
 // declare a free_blocks of block structures, each linked by their link_ member
+// TODO: turn this into a struct that allows me to pop and push blocks at specific indexes
 list<page, &page::link_> free_blocks[ORDER_COUNT];
 pageset pagess;
+
+void pageset::print_block(page* p) {
+    // print pages
+    for(uintptr_t addr = p->first(); addr < p->last(); addr += PAGESIZE) {
+        ps_[index(addr)].print_page();
+    }
+}
 
 void pageset::print_pageset() {
     // print pages
@@ -204,6 +222,37 @@ page* pageset::get_parent(page* p) {
     return &ps_[index(p->parent())];
 }
 
+bool pageset::is_free(page* p) {
+    for(uintptr_t addr = p->first(); addr < p->last(); addr += PAGESIZE) {
+        if(ps_[index(addr)].status != pg_free) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void pageset::set_status(page* p, pagestatus_t s) {
+    for(uintptr_t addr = p->first(); addr < p->last(); addr += PAGESIZE) {
+        ps_[index(addr)].status = s;
+    }
+}
+
+void pageset::free(page* p) {
+    set_status(p, pg_free);
+}
+
+void pageset::allocate(page* p) {
+    set_status(p, pg_allocated);
+}
+
+void pageset::decrement_order(page* p) {
+    uintptr_t first = p->first();
+    uintptr_t last = p->last();
+    for(uintptr_t addr = first; addr < last; addr += PAGESIZE) {
+        ps_[index(addr)].order--;
+    }
+}
+
 void pageset::init() {
     auto irqs = page_lock.lock();
     for(uintptr_t pa = 0; pa < physical_ranges.limit(); pa += PAGESIZE) {
@@ -217,15 +266,16 @@ void pageset::init() {
     try_merge_all();
 }
 
-void pageset::try_merge_all() {
-    for(int i = 0; i < PAGES_COUNT; i++) { 
-        try_merge(&ps_[i]);
-    }
-}
+// void pageset::try_merge_all() {
+//     for(int i = 0; i < PAGES_COUNT; i++) { 
+//         try_merge(&ps_[i]);
+//     }
+// }
 
 // TODO: should I always protect pages? What else should I protect? Some of these operations should be atomic
 void pageset::try_merge(page* p) {
     // check if all block pages are free
+    // TODO: turn into a pageset function
     for(uintptr_t addr = p->first(); addr < p->last(); addr += PAGESIZE) {
         if(ps_[index(addr)].status != pg_free) {
             return;
@@ -259,7 +309,7 @@ void pageset::try_merge(page* p) {
     // TODO: improve this
     uintptr_t first = p->first();
     uintptr_t last = p->last();
-    page* parent = p->left() ? p : b;
+    page* parent = p->is_left() ? p : b;
     for(uintptr_t addr = first; addr < last; addr += PAGESIZE) {
         ps_[index(addr)].order += 1;
     }
@@ -275,6 +325,7 @@ void pageset::try_merge(page* p) {
     
     try_merge(parent);
 }
+
 
 // init_kalloc
 //    Initialize stuff needed by `kalloc`. Called from `init_hardware`,
@@ -330,16 +381,94 @@ void init_kalloc() {
 //
 //    The handout code does not free memory and allocates memory in units
 //    of pages.
-void* kalloc(size_t sz) {
-    
-    //calculate order of allocation
-    int order = msb(sz - 1);
-
-    if(order > MAX_ORDER || order < MIN_ORDER) {
+void* kallocc(size_t sz) {
+    // validate size
+    if(sz == 0) {
         return nullptr;
     }
 
+    // validate order of allocation
+    const int order = msb(sz - 1) < MIN_ORDER ? MIN_ORDER : msb(sz - 1);
+    if(order > MAX_ORDER) {
+        return nullptr;
+    }
 
+    void* ptr = nullptr;
+
+    // look for a free block with the desired order
+    page* p = free_blocks[order - MIN_ORDER].pop_front();
+    if(p) {
+        // if found, use this block
+        ptr = pa2kptr<void*>(p->first());
+
+       // assert invariant
+       assert(p->order == MAX_ORDER || !pagess.is_free(pagess.get_buddy(p)));
+    } else {
+        // log_printf("did not find block with order %d\n", order);
+        // if not found, look for block with order o > order, minimizing o
+        for(int o = order + 1; o <= MAX_ORDER; o++) {
+            p = free_blocks[o - MIN_ORDER].pop_front();
+            if(p) {
+                // assert invariants
+                assert(o == p->order);
+                assert(p->order == MAX_ORDER || !pagess.is_free(pagess.get_buddy(p)));
+
+                // if found block, stop looking
+                break;
+            }
+        }
+
+        if(!p) {
+            // log_printf("no block available with order\n");
+            // no memory available
+            return nullptr;
+        }
+
+        // split block into two and free one of them as much as possible
+        page* b;
+        for(int o = p->order; o > order; o--) {
+            pagess.decrement_order(p);
+            b = pagess.get_buddy(p);
+            assert(p->order == b->order);
+            free_blocks[b->order - MIN_ORDER].push_back(b);
+        }
+
+        // at this point, block should have the desired order
+        assert(p->order == order);
+
+        //use found block
+        // TODO: move this after else
+        ptr = pa2kptr<void*>(p->first());
+    }
+
+    // // set block's status to allocated
+    // pagess.allocate(p);
+
+    // // TODO: can ptr even be null at this point
+
+    // if (ptr) {
+    //     // tell sanitizers the allocated page is accessible
+    //     asan_mark_memory(ka2pa(ptr), (1 << order), false);
+    //     // initialize to `int3` | NOT SURE
+    //     memset(ptr, 0xCC, (1 << order)); 
+    // }
+    // return ptr;
+}
+
+void pageset::try_merge_all() {
+    for(int i = 0; i < PAGES_COUNT; i++) { 
+        try_merge(&ps_[i]);
+    }
+    kallocc(1 << (MIN_ORDER + 3));
+}
+
+
+void* kalloc(size_t sz) { 
+    //calculate order of allocation
+    int order = msb(sz - 1);
+    if(order > MAX_ORDER || order < MIN_ORDER) {
+        return nullptr;
+    }
     void* ptr = nullptr;
 
     // find a free block with desired order 

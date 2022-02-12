@@ -55,3 +55,11 @@ void process_main() {
         sys_yield();
     }
 }
+
+/**
+ * @brief test cases
+ * allocate block of exactly MIN_ORDER
+ * allocate block of exactly MAX_ORDER
+ * allocate block of one off (+ or -) of MIN_ORDER and MAX_ORDER
+ * 
+ */
