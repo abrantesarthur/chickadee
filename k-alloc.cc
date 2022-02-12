@@ -81,6 +81,7 @@ struct pageset {
     void free(page* p);     // free the block
     void allocate(page* p);     // allocate the block
     bool is_free(page* b);  // returns true if all pages within block are free
+    bool has_order(page* b, int o);  // returns true if all pages within block are free
     uintptr_t index(uintptr_t addr);  // get the index of page at address addr
     // helper functions
     void print_block(page* p);
@@ -155,6 +156,15 @@ bool pageset::is_free(page* p) {
     return true;
 }
 
+bool pageset::has_order(page* p, int order) {
+    for(uintptr_t addr = p->first(); addr < p->last(); addr += PAGESIZE) {
+        if(ps_[index(addr)].order != order) {
+            return false;
+        }
+    }
+    return true;
+}
+
 void pageset::set_status(page* p, pagestatus_t s) {
     for(uintptr_t addr = p->first(); addr < p->last(); addr += PAGESIZE) {
         ps_[index(addr)].status = s;
@@ -198,7 +208,7 @@ void pageset::try_merge_all() {
 // TODO: should I always protect pages? What else should I protect? Some of these operations should be atomic
 void pageset::try_merge(page* p) {
     // check if block and its buddy are both free
-     page* b = get_buddy(p);
+    page* b = get_buddy(p);
     if(!is_free(p) || !is_free(b)) {
         return;
     }
@@ -207,15 +217,8 @@ void pageset::try_merge(page* p) {
     //buddy and block must have the same order
     // TODO: put everything in the previous loops?
     int order = p->order;
-    for(uintptr_t addr = p->first(); addr < p->last(); addr += PAGESIZE) {
-        if(ps_[index(addr)].order != order) {
-            return;
-        }
-    }
-    for(uintptr_t addr = b->first(); addr < b->last(); addr+=PAGESIZE) {
-        if(ps_[index(addr)].order != order) {
-            return;
-        }
+    if(!has_order(p, order) || !has_order(b, order)) {
+        return;
     }
 
 
