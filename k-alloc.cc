@@ -218,7 +218,7 @@ void pageset::init() {
 }
 
 void pageset::try_merge_all() {
-    for(int i = 0; i < PAGES_COUNT; i++) {
+    for(int i = 0; i < PAGES_COUNT; i++) { 
         try_merge(&ps_[i]);
     }
 }
@@ -241,7 +241,7 @@ void pageset::try_merge(page* p) {
     }
 
     //buddy and block must have the same order
-    // TODO: why not put everything in the previous loops?
+    // TODO: put everything in the previous loops?
     int order = p->order;
     for(uintptr_t addr = p->first(); addr < p->last(); addr += PAGESIZE) {
         if(ps_[index(addr)].order != order) {
@@ -272,9 +272,7 @@ void pageset::try_merge(page* p) {
     free_blocks[order - MIN_ORDER].erase(p);
     free_blocks[order - MIN_ORDER].erase(b);
     free_blocks[order + 1 - MIN_ORDER].push_back(parent);
-
-    print_freeblocks(10);
-
+    
     try_merge(parent);
 }
 
@@ -312,7 +310,7 @@ void init_kalloc() {
         } 
     }
     page_lock.unlock(irqs);
-    //
+    
     // merge
     for(int row = 0; row < PAGES_COUNT; row++) {
         merge(row * PAGESIZE);
