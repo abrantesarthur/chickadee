@@ -1,5 +1,5 @@
 #include "u-lib.hh"
-#define ALLOC_SLOWDOWN 24
+#define ALLOC_SLOWDOWN 1
 
 extern uint8_t end[];
 
@@ -42,6 +42,11 @@ void process_main() {
         if (rand() < RAND_MAX / 32) {
             sys_pause();
         }
+    }
+
+    sys_map_console(console);
+    for (int i = 0; i < CONSOLE_ROWS * CONSOLE_COLUMNS; ++i) {
+        console[i] = 'H' | 0xA000;
     }
 
     // After running out of memory, do nothing forever

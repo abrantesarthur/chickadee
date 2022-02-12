@@ -199,11 +199,14 @@ void pageset::try_merge_all() {
 void pageset::try_merge(page* p) {
     // check if all block pages are free
     // TODO: turn into a pageset function
-    for(uintptr_t addr = p->first(); addr < p->last(); addr += PAGESIZE) {
-        if(ps_[index(addr)].status != pg_free) {
-            return;
-        }
+    if(!is_free(p)) {
+        return;
     }
+    // for(uintptr_t addr = p->first(); addr < p->last(); addr += PAGESIZE) {
+    //     if(ps_[index(addr)].status != pg_free) {
+    //         return;
+    //     }
+    // }
 
     // check if all buddy pages are free
     page* b = get_buddy(p);
