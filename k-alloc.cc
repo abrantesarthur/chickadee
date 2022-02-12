@@ -82,11 +82,12 @@ struct pageset {
     void allocate(page* p);     // allocate the block
     bool is_free(page* b);  // returns true if all pages within block are free
     uintptr_t index(uintptr_t addr);  // get the index of page at address addr
-    page ps_[PAGES_COUNT];
-
     // helper functions
     void print_block(page* p);
     void print_pageset();
+
+    private:
+        page ps_[PAGES_COUNT];
 };
 
 // declare a free_blocks of block structures, each linked by their link_ member
