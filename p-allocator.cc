@@ -16,6 +16,7 @@ void process_main() {
     pid_t p = sys_getpid();
     srand(p);
 
+
     // The heap starts on the page right after the 'end' symbol,
     // whose address is the first address not allocated to process code
     // or data.

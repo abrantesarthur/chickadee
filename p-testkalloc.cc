@@ -55,3 +55,49 @@ void process_main() {
         sys_yield();
     }
 }
+
+/**
+ * @brief test cases
+ * allocate block of exactly MIN_ORDER
+ * allocate block of exactly MAX_ORDER
+ * allocate block of one off (+ or -) of MIN_ORDER and MAX_ORDER
+ *  // TODO: turn this into a test case
+    log_printf("PAGES BEFORE\n");
+    print_pageset();
+    kallocc(1 << (MIN_ORDER + 3));
+    log_printf("\nPAGES AFTER\n");
+    print_pageset();
+    kallocc(1 << (MIN_ORDER + 4));
+    log_printf("\nPAGES AFTER\n");
+    print_pageset();
+    kallocc(1 << (MIN_ORDER + 3));
+    log_printf("\nPAGES AFTER\n");
+    print_pageset();
+    kallocc(1 << (MIN_ORDER + 3));
+    log_printf("\nPAGES AFTER\n");
+    print_pageset();
+    kallocc(1 << (MIN_ORDER + 3));
+    log_printf("\nPAGES AFTER\n");
+    print_pageset();
+    kallocc(1 << (MIN_ORDER + 3));
+    log_printf("\nPAGES AFTER\n");
+    print_pageset();
+    
+     // TODO: definitely test this case!
+    print_pageset();
+    kallocc(1 << (MIN_ORDER + 3));
+    print_pageset();
+    kallocc(1 << (MIN_ORDER + 4));
+    print_pageset();
+    kallocc(1 << (MIN_ORDER + 3));
+    print_pageset();
+    kallocc(1 << (MIN_ORDER + 3));
+    print_pageset();
+    kallocc(1 << (MIN_ORDER + 3));
+    print_pageset();
+    void* ptr = kallocc(1 << (MIN_ORDER + 3));
+    print_pageset();
+    kfreee(ptr);
+    print_pageset();
+ * 
+ */

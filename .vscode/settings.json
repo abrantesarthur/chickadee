@@ -21,7 +21,19 @@
         "memory_resource": "cpp",
         "memory": "cpp",
         "new": "cpp",
-        "__debug": "cpp"
+        "__debug": "cpp",
+        "bitset": "cpp",
+        "utility": "cpp",
+        "ios": "cpp",
+        "__locale": "cpp",
+        "atomic": "cpp",
+        "cstdlib": "cpp",
+        "locale": "cpp",
+        "ostream": "cpp",
+        "typeinfo": "cpp",
+        "algorithm": "cpp",
+        "complex": "cpp",
+        "functional": "cpp"
     },
     "C_Cpp.errorSquiggles": "Disabled"
 }

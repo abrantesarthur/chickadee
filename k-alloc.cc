@@ -2,6 +2,8 @@
 #include "k-vmiter.hh"
 #include "k-lock.hh"
 
+// TODO: implement changes starting from 'implmeent buddy allocator' commit
+
 static spinlock page_lock;
 static uintptr_t next_free_pa;
 
@@ -9,177 +11,242 @@ static uintptr_t next_free_pa;
 #define MAX_ORDER 21
 #define ORDER_COUNT 10
 
-////////////////////////////////////////////////////////////////////////////
-// TODO: how to make the properties constant?
-struct block {
-        uintptr_t first_;            // first address in the block
-        uintptr_t last_;            // last address in the block
-        uintptr_t size_;            // size of this block                       
-        uintptr_t buddy_addr_;      // buddy's first address
-        int order_;                 // order of this block
-        int index_;                 // the index of this block
-        list_links link_;
+enum pagestatus_t {
+    pg_unavailable = 0,   // the page cannot be allocated
+    pg_free = 1,          // the page is free to be allocated
+    pg_allocated = 2,     // the page is already allocated
 };
-
-struct blocktable {
-    public:
-        void init();
-
-        // TODO: make it return unsigned
-        uintptr_t block_index(int order, uintptr_t addr);
-        block* get_block(uintptr_t addr);
-        block* get_block(uintptr_t addr, int order);
-        // TODO: can I make this a block method?
-        block* get_parent(block* b);
-        block* get_buddy(block* b);
-
-        // get address of buddy of block at address 'addr'
-        // TODO: make it return uintptr_t.
-        int get_buddy_addr(int order, uintptr_t addr);
-    private:
-        block t_[ORDER_COUNT][PAGES_COUNT];
-};
-
 
 struct page {
-    bool free = false;
+    pagestatus_t status = pg_unavailable; 
     int order = MIN_ORDER;
+    uintptr_t addr = 0;
+    list_links link_;
+    
+    inline uintptr_t size();    // size of the block
+    inline uintptr_t first();    // first address in block
+    inline uintptr_t last();     // last address in block
+    inline uintptr_t middle();  // middle address in the block
+    inline bool is_left();
+    inline uintptr_t buddy();     // first address of buddy 
+    inline uintptr_t parent(); 
+    inline void print_page();
 };
 
+inline uintptr_t page::size() {
+    return 1<<(order);
+}
+
+inline uintptr_t page::first() {
+    return addr - (addr % size());
+}
+
+inline uintptr_t page::last() {
+    return first() + size() - 1;
+}
+
+inline uintptr_t page::middle() {
+    return first() + size() / 2;
+}
+
+// TODO: comment that this is in relation to parent
+inline bool page::is_left() {
+    return first() % (2 * size()) == 0;
+}
+
+inline uintptr_t page::buddy() {
+    return is_left() ? first() + size() : first() - size();
+}
+
+inline uintptr_t page::parent() {
+    // max order block has no parent
+    return (is_left() || (order == MAX_ORDER)) ? first() : first() - size();
+}
+
+inline void page::print_page() {
+    log_printf("addr: %p | buddy: %p | block: %p - %p | parent: %p | %s | order: %d\n", addr, buddy(), first(), last(), parent(), status == pg_free ? "free" : (status == pg_unavailable ? "unavailable" : "allocated"), order);
+}
+
+// TODO: should I rename this to blocks?
 struct pageset {
     void init();
+    void try_merge_all();
+    void try_merge(page* p);
+    page* get_page(uintptr_t addr);     // returns page at addr
+    page* get_block(uintptr_t addr);    // gets first page of the block
+    page* get_buddy(page* p);   // get first page in buddy block
+    page* get_parent(page* p);
+    void decrement_order(page*p);
+    void set_status(page* p, pagestatus_t s);     // update block's status
+    void free(page* p);     // free the block
+    void allocate(page* p);     // allocate the block
+    bool is_free(page* b);  // returns true if all pages within block are free
+    uintptr_t index(uintptr_t addr);  // get the index of page at address addr
+    // helper functions
+    void print_block(page* p);
+    void print_pageset();
 
-    page ps_[PAGES_COUNT];
+    private:
+        page ps_[PAGES_COUNT];
 };
 
-// declare datastructure that keeps track of blocks of a given order
-blocktable btable;
 // declare a free_blocks of block structures, each linked by their link_ member
-list<block, &block::link_> free_blocks[ORDER_COUNT];
-pageset pages;
+// TODO: turn this into a struct that allows me to pop and push blocks at specific indexes
+list<page, &page::link_> free_blocks[ORDER_COUNT];
+pageset pagess;
 
-// |f   |f   |f   |f   |f   |f   |f   |f   |f   |f   |f   |
+void pageset::print_block(page* p) {
+    // print pages
+    for(uintptr_t addr = p->first(); addr < p->last(); addr += PAGESIZE) {
+        ps_[index(addr)].print_page();
+    }
+}
+
+void pageset::print_pageset() {
+    // print pages
+    for(uintptr_t i = 0; i < PAGES_COUNT; i++) {
+        ps_[i].print_page();
+    }
+}
+
+void print_freeblocks(unsigned count) {
+    for(int i = 0; i < ORDER_COUNT; i++) {
+        page* p = free_blocks[i].front();
+        log_printf("ORDER %d =========================================\n", i + MIN_ORDER);
+        unsigned iteration = 0;
+        while(p && iteration < count) {
+            log_printf("%p - %p\n", p->first(), p->last());
+            p = free_blocks[i].next(p);
+            iteration++;
+        }
+        log_printf("\n");
+    }
+}
+
+// TODO: cast to int
+uintptr_t pageset::index(uintptr_t addr) {
+    assert(addr < physical_ranges.limit());
+    assert(addr % PAGESIZE == 0);
+    return addr / PAGESIZE;
+}
+
+page* pageset::get_buddy(page* p) {
+    return &ps_[index(p->buddy())];
+}
+
+page* pageset::get_parent(page* p) {
+    return &ps_[index(p->parent())];
+}
+
+page* pageset::get_page(uintptr_t addr) {
+    return &ps_[index(addr)];
+}
+
+page* pageset::get_block(uintptr_t addr) {
+    return &ps_[index(get_page(addr)->first())];
+}
+
+bool pageset::is_free(page* p) {
+    for(uintptr_t addr = p->first(); addr < p->last(); addr += PAGESIZE) {
+        if(ps_[index(addr)].status != pg_free) {
+            return false;
+        }
+    }
+    return true;
+}
+
+void pageset::set_status(page* p, pagestatus_t s) {
+    for(uintptr_t addr = p->first(); addr < p->last(); addr += PAGESIZE) {
+        ps_[index(addr)].status = s;
+    }
+}
+
+void pageset::free(page* p) {
+    set_status(p, pg_free);
+}
+
+void pageset::allocate(page* p) {
+    set_status(p, pg_allocated);
+}
+
+void pageset::decrement_order(page* p) {
+    uintptr_t first = p->first();
+    uintptr_t last = p->last();
+    for(uintptr_t addr = first; addr < last; addr += PAGESIZE) {
+        ps_[index(addr)].order--;
+    }
+}
 
 void pageset::init() {
     auto irqs = page_lock.lock();
     for(uintptr_t pa = 0; pa < physical_ranges.limit(); pa += PAGESIZE) {
         if(physical_ranges.type(pa) == mem_available) {
-            // mark page as free
-            ps_[pa / PAGESIZE].free = true;
-            free_blocks[0].push_back(btable.get_block(pa));
+            ps_[index(pa)].status = pg_free;
+            ps_[index(pa)].addr = pa;
+            free_blocks[0].push_back(&ps_[index(pa)]);
         }
     }
     page_lock.unlock(irqs);
 }
 
-
-
-void blocktable::init() {
-    block* b;
-    for (int o = 0; o < ORDER_COUNT; o++) {
-        for (int i = 0; i < PAGES_COUNT / (1 << o); i++) {
-            // set begin and end addresses of block of memory of given o
-            b = &t_[o][i];
-            b->size_ = (1<<(o)) * PAGESIZE;
-            b->first_ = i * b->size_;
-            b->last_ = b->first_ + b->size_ - 1;
-            b->buddy_addr_ = ((i % 2) == 0) ? b->last_ + 1 : b->first_ - b->size_;
-            b->order_ = o + MIN_ORDER;
-            b->index_ = i;
-        }
+void pageset::try_merge_all() {
+    for(int i = 0; i < PAGES_COUNT; i++) { 
+        try_merge(&ps_[i]);
     }
 }
 
-// TODO: can I refactor this to use t_ somehow? What about iterating over t_[o] list, looking for pa!!!
-uintptr_t blocktable::block_index(int order, uintptr_t addr) {
-    return addr / ((1<<(order - MIN_ORDER)) * PAGESIZE);
-}
-
-// TODO: this only works if pa is 512 aligned
-block* blocktable::get_block(uintptr_t addr) {
-    // TODO: somewhere assert that all pages within a block have the same order
-    return get_block(addr, pages.ps_[addr / PAGESIZE].order);
-}
-
-// TODO: this should be a method of block
-block* blocktable::get_buddy(block* b) {
-    return get_block(b->buddy_addr_, b->order_);
-}
-
-block* blocktable::get_block(uintptr_t addr, int order) {
-    assert(order >= MIN_ORDER && order <= MAX_ORDER);
-
-    // get block index into blocktable
-     uintptr_t i = block_index(order, addr);
-    return &t_[order - MIN_ORDER][i];
-
-}
-
-// TODO: make this a method of block*
-block* blocktable::get_parent(block* b) {
-    block* buddy = get_block(b->buddy_addr_);
-    int p_order = b->order_ + 1;
-     // TODO: extract b->index_ % 2 == 0  into left() method
-    uintptr_t p_index = b->index_ % 2 == 0 ?  
-        block_index(p_order, b->first_) :
-        block_index(p_order, buddy->first_);
-    return &t_[p_order - MIN_ORDER ][p_index];
-}
-
-// TODO: there is probably room for improvement!
-int blocktable::get_buddy_addr(int order, uintptr_t addr) {
-    int i = block_index(order, addr);
-    uintptr_t offset = (1 << (order - MIN_ORDER)) * PAGESIZE;
-    return (i % 2 == 0) ? addr + offset : addr - offset;
-}
-
-////////////////////////////////////////////////////////////////////////////
-
-
 // TODO: should I always protect pages? What else should I protect? Some of these operations should be atomic
-void try_merge(block* blk) {
-
-    // TODO: add iteration support to block_pages (e.g., va, next, etc);
-    // only proceed if all pages within the block are free
-    for(uintptr_t addr = blk->first_; addr < blk->last_; addr+=PAGESIZE) {
-        if(pages.ps_[addr / PAGESIZE].free == 0) {
+void pageset::try_merge(page* p) {
+    // check if all block pages are free
+    // TODO: turn into a pageset function
+    for(uintptr_t addr = p->first(); addr < p->last(); addr += PAGESIZE) {
+        if(ps_[index(addr)].status != pg_free) {
             return;
         }
     }
 
-    // get buddy
-    block* buddy = btable.get_block(blk->buddy_addr_);
-
-    // only proceed if all pages within the buddy are free
-    for(uintptr_t addr = buddy->first_; addr < buddy->last_; addr+=PAGESIZE) {
-        if(pages.ps_[addr / PAGESIZE].free == 0) {
+    // check if all buddy pages are free
+    page* b = get_buddy(p);
+    for(uintptr_t addr = b->first(); addr < b->last(); addr+=PAGESIZE) {
+        if(ps_[index(addr)].status != pg_free) {
             return;
         }
     }
 
     //buddy and block must have the same order
-    if(buddy->order_ != blk->order_) {
-        return;
+    // TODO: put everything in the previous loops?
+    int order = p->order;
+    for(uintptr_t addr = p->first(); addr < p->last(); addr += PAGESIZE) {
+        if(ps_[index(addr)].order != order) {
+            return;
+        }
+    }
+    for(uintptr_t addr = b->first(); addr < b->last(); addr+=PAGESIZE) {
+        if(ps_[index(addr)].order != order) {
+            return;
+        }
     }
 
-    // get parent block
-    block* parent_blk = btable.get_parent(blk);
 
-    // merge
-    free_blocks[blk->order_ - MIN_ORDER].erase(blk);
-    free_blocks[blk->order_ - MIN_ORDER].erase(buddy);
-    free_blocks[blk->order_ + 1 - MIN_ORDER].push_back(parent_blk);
-
-    //update pages
-    for(uintptr_t addr = blk->first_; addr < blk->last_; addr+=PAGESIZE) {
-        pages.ps_[blk->first_ / PAGESIZE].order = blk->order_ + 1;
+    // merge by increasing order of pages and updating free_blocks
+    // TODO: improve this
+    uintptr_t first = p->first();
+    uintptr_t last = p->last();
+    page* parent = p->is_left() ? p : b;
+    for(uintptr_t addr = first; addr < last; addr += PAGESIZE) {
+        ps_[index(addr)].order += 1;
     }
-    for(uintptr_t addr = buddy->first_; addr < buddy->last_; addr+=PAGESIZE) {
-        pages.ps_[buddy->first_ / PAGESIZE].order = blk->order_ + 1;
+    first = b->first();
+    last = b->last();
+    for(uintptr_t addr = first; addr < last; addr+=PAGESIZE) {
+        ps_[index(addr)].order += 1;
     }
 
-    block* b = btable.get_block(parent_blk->first_);
-    try_merge(b);   
+    free_blocks[order - MIN_ORDER].erase(p);
+    free_blocks[order - MIN_ORDER].erase(b);
+    free_blocks[order + 1 - MIN_ORDER].push_back(parent);
+    
+    try_merge(parent);
 }
 
 
@@ -187,12 +254,8 @@ void try_merge(block* blk) {
 //    Initialize stuff needed by `kalloc`. Called from `init_hardware`,
 //    after `physical_ranges` is initialized.
 void init_kalloc() {
-    btable.init();
-    pages.init();
-    for(int pa = 0; pa < PAGES_COUNT * PAGESIZE; pa += PAGESIZE) {
-        block* b = btable.get_block(pa);
-        try_merge(b);
-    }
+    pagess.init();
+    pagess.try_merge_all(); 
 }
 
 // kalloc(sz)
@@ -208,77 +271,78 @@ void init_kalloc() {
 //
 //    The handout code does not free memory and allocates memory in units
 //    of pages.
-void* kalloc(size_t sz) {
-    //calculate order of allocation
-    int order = msb(sz - 1);
 
-    if(order > MAX_ORDER || order < MIN_ORDER) {
+// TODO: think about lock strategy for pages datastructure!
+void* kalloc(size_t sz) {
+    // validate size
+    if(sz == 0) {
         return nullptr;
     }
 
+    // validate order of allocation
+    const int order = msb(sz - 1) < MIN_ORDER ? MIN_ORDER : msb(sz - 1);
+    if(order > MAX_ORDER) {
+        return nullptr;
+    }
 
     void* ptr = nullptr;
 
-    // find a free block with desired order 
-    block* blk = free_blocks[order - MIN_ORDER].pop_front();
-    if (blk) {
-        //use this block
-        ptr = pa2kptr<void*>(blk->first_);
+    // look for a free block with the desired order
+    page* p = free_blocks[order - MIN_ORDER].pop_front();
+    if(p) {
+        // if found, use this block
+        ptr = pa2kptr<void*>(p->first());
+
+       // assert invariant
+       assert(p->order == MAX_ORDER || !pagess.is_free(pagess.get_buddy(p)));
+       assert(pagess.is_free(p));
     } else {
-        // find free block with order o > order, minimizing o.
-        for(int o = order + 1; o < MAX_ORDER; o++) {
-            // if found a block
-            blk = free_blocks[o - MIN_ORDER].pop_front();
-            if(blk) {
+        // if not found, look for block with order o > order, minimizing o
+        for(int o = order + 1; o <= MAX_ORDER; o++) {
+            p = free_blocks[o - MIN_ORDER].pop_front();
+            if(p) {
+                // if found block, assert invariants and stop looking
+                assert(o == p->order);
+                assert(p->order == MAX_ORDER || !pagess.is_free(pagess.get_buddy(p)));
+                assert(pagess.is_free(p));
                 break;
             }
         }
 
-        if(!blk) {
-            // return nullptr
+        if(!p) {
+            // no memory available
             return nullptr;
         }
 
-        // splitting the block as much as possible
-        block* left_blk;
-        block* right_blk;
-        for(int o = blk->order_; o > order; o--) {
-            left_blk = btable.get_block(blk->first_, o - 1);
-            right_blk = btable.get_block(left_blk->buddy_addr_, o - 1);  
-
-            // swap blocks if necessary
-            if (left_blk->index_ % 2 != 0) {  
-                block* tmp_blk = left_blk;
-                left_blk = right_blk;
-                right_blk = tmp_blk;  
-            }
-
-            //update pages orders
-            // TODO: should I not update all pages within that block
-            pages.ps_[left_blk->first_ / PAGESIZE].order = o - 1;
-            pages.ps_[right_blk->first_ / PAGESIZE].order = o - 1;
-
-            //update free_blocks
-            free_blocks[o - MIN_ORDER - 1].push_back(right_blk);
-            blk = left_blk;
+        // split block into two and free one of them as much as possible
+        page* b;
+        for(int o = p->order; o > order; o--) {
+            pagess.decrement_order(p);
+            b = pagess.get_buddy(p);
+            assert(p->order == b->order);
+            free_blocks[b->order - MIN_ORDER].push_back(b);
         }
-    
-        //use this block
-        ptr = pa2kptr<void*>(blk->first_);
+
+
+        //use found block
+        // TODO: move this after else
+        ptr = pa2kptr<void*>(p->first());
     }
 
-    // set block's free status to false
-    for (uintptr_t addr = blk->first_; addr < blk->last_; addr += PAGESIZE) {
-        pages.ps_[addr / PAGESIZE].free = false; 
-    }
+     // at this point, block should have the desired order
+    assert(p->order == order);
+
+    // set block's status to allocated
+    pagess.allocate(p);
+
+    // TODO: can ptr even be null at this point
 
     if (ptr) {
         // tell sanitizers the allocated page is accessible
-        asan_mark_memory(ka2pa(ptr), (1 << order), false);
+        asan_mark_memory(ka2pa(ptr), p->size(), false);
         // initialize to `int3` | NOT SURE
-        memset(ptr, 0xCC, (1 << order)); 
+        memset(ptr, 0xCC, p->size()); 
     }
-
     return ptr;
 }
 
@@ -286,45 +350,39 @@ void* kalloc(size_t sz) {
 //    Free a pointer previously returned by `kalloc`. Does nothing if
 //    `ptr == nullptr`.
 void kfree(void* ptr) {
-    
-    // do nothing if ptr == nullptr
-    if (!ptr) {
+    if(!ptr) {
         return;
     }
-
-    // convert to physical address
-    uintptr_t block_pa = ka2pa(ptr);
+    // get physical address
+    uintptr_t pa = ka2pa(ptr);
 
     // prevent freeing reserved memory
-    if(physical_ranges.type(block_pa) != mem_available) {
+    if(physical_ranges.type(pa) != mem_available) {
         return;
     }
 
-    // tell sanitizers the freed page is inaccessible
-    asan_mark_memory(block_pa, PAGESIZE, true);
-    
-
     // get block
-    int order = pages.ps_[block_pa / PAGESIZE].order;
-    block* blk = btable.get_block(block_pa, order);
+    page* p = pagess.get_block(pa);
 
-    // free pages within that block
-    for(uintptr_t addr = blk->first_; addr < blk->last_; addr+=PAGESIZE){
-        // assert that pages within the block have the same order and are notfree
-        assert(pages.ps_[addr / PAGESIZE].free == false);
-        assert(pages.ps_[addr / PAGESIZE].order == order);
+    // pa must be memory returned by kalloc
+    assert(p->first() == pa);
 
-        // free pages
-        pages.ps_[addr / PAGESIZE].free = true;
-    }
+    log_printf("BLOCK FIRST ADDRS: %p\n", p->first());
 
-    // TODO: should I not also add it to free_list?
+    // TODO: this should be an atomic operation!
+    // set pages within block to free
+    pagess.free(p);
+    // add block to free_blocks list
+    free_blocks->push_back(p);
+
+
+    // tell sanitizers the freed block is inaccessible
+    // TODO: move this to the end
+    asan_mark_memory(pa, p->size(), true);
+
 
     // try merging the block
-    // try_merge() checks whether the freed block’s order-o buddy is also completely free
-    // If it is, merge recursively coalesces them into a single free block of order o + 1.
-    block* b = btable.get_block(block_pa);
-    return try_merge(b);
+    return pagess.try_merge(p);
 }
 
 // kfree_proc(p)
@@ -340,42 +398,55 @@ void kfree_proc(proc *p) {
     }
 }
 
+
 // operator new, operator delete
 //    Expressions like `new (std::nothrow) T(...)` and `delete x` work,
 //    and call kalloc/kfree.
-void* operator new(size_t sz, const std::nothrow_t&) noexcept {
+void *operator new(size_t sz, const std::nothrow_t &) noexcept
+{
     return kalloc(sz);
 }
-void* operator new(size_t sz, std::align_val_t, const std::nothrow_t&) noexcept {
+void *operator new(size_t sz, std::align_val_t, const std::nothrow_t &) noexcept
+{
     return kalloc(sz);
 }
-void* operator new[](size_t sz, const std::nothrow_t&) noexcept {
+void *operator new[](size_t sz, const std::nothrow_t &) noexcept
+{
     return kalloc(sz);
 }
-void* operator new[](size_t sz, std::align_val_t, const std::nothrow_t&) noexcept {
+void *operator new[](size_t sz, std::align_val_t, const std::nothrow_t &) noexcept
+{
     return kalloc(sz);
 }
-void operator delete(void* ptr) noexcept {
+void operator delete(void *ptr)noexcept
+{
     kfree(ptr);
 }
-void operator delete(void* ptr, size_t) noexcept {
+void operator delete(void *ptr, size_t)noexcept
+{
     kfree(ptr);
 }
-void operator delete(void* ptr, std::align_val_t) noexcept {
+void operator delete(void *ptr, std::align_val_t)noexcept
+{
     kfree(ptr);
 }
-void operator delete(void* ptr, size_t, std::align_val_t) noexcept {
+void operator delete(void *ptr, size_t, std::align_val_t)noexcept
+{
     kfree(ptr);
 }
-void operator delete[](void* ptr) noexcept {
+void operator delete[](void *ptr) noexcept
+{
     kfree(ptr);
 }
-void operator delete[](void* ptr, size_t) noexcept {
+void operator delete[](void *ptr, size_t) noexcept
+{
     kfree(ptr);
 }
-void operator delete[](void* ptr, std::align_val_t) noexcept {
+void operator delete[](void *ptr, std::align_val_t) noexcept
+{
     kfree(ptr);
 }
-void operator delete[](void* ptr, size_t, std::align_val_t) noexcept {
+void operator delete[](void *ptr, size_t, std::align_val_t) noexcept
+{
     kfree(ptr);
 }
