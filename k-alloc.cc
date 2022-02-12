@@ -254,10 +254,6 @@ void pageset::try_merge(page* p) {
         }
     }
 
-    log_printf("block: ");
-    p->print_page();
-    print_freeblocks(10);
-
 
     // merge by increasing order of pages and updating free_blocks
     // TODO: improve this
@@ -277,9 +273,8 @@ void pageset::try_merge(page* p) {
     free_blocks[order - MIN_ORDER].erase(b);
     free_blocks[order + 1 - MIN_ORDER].push_back(parent);
 
-    log_printf("paren: ");
-    parent->print_page();
-    log_printf("\n\n");
+    print_freeblocks(10);
+
     try_merge(parent);
 }
 
