@@ -197,24 +197,12 @@ void pageset::try_merge_all() {
 
 // TODO: should I always protect pages? What else should I protect? Some of these operations should be atomic
 void pageset::try_merge(page* p) {
-    // check if all block pages are free
-    // TODO: turn into a pageset function
-    if(!is_free(p)) {
+    // check if block and its buddy are both free
+     page* b = get_buddy(p);
+    if(!is_free(p) || !is_free(b)) {
         return;
     }
-    // for(uintptr_t addr = p->first(); addr < p->last(); addr += PAGESIZE) {
-    //     if(ps_[index(addr)].status != pg_free) {
-    //         return;
-    //     }
-    // }
 
-    // check if all buddy pages are free
-    page* b = get_buddy(p);
-    for(uintptr_t addr = b->first(); addr < b->last(); addr+=PAGESIZE) {
-        if(ps_[index(addr)].status != pg_free) {
-            return;
-        }
-    }
 
     //buddy and block must have the same order
     // TODO: put everything in the previous loops?
