@@ -2,8 +2,6 @@
 #include "k-vmiter.hh"
 #include "k-lock.hh"
 
-// TODO: implement changes starting from 'implmeent buddy allocator' commit
-
 static spinlock page_lock;
 static uintptr_t next_free_pa;
 
@@ -49,7 +47,6 @@ inline uintptr_t page::middle() {
     return first() + size() / 2;
 }
 
-// TODO: comment that this is in relation to parent
 inline bool page::is_left() {
     return first() % (2 * size()) == 0;
 }
@@ -67,7 +64,6 @@ inline void page::print_page() {
     log_printf("addr: %p | buddy: %p | block: %p - %p | parent: %p | %s | order: %d\n", addr, buddy(), first(), last(), parent(), status == pg_free ? "free" : (status == pg_unavailable ? "unavailable" : "allocated"), order);
 }
 
-// TODO: should I rename this to blocks?
 struct pageset {
     void init();
     void try_merge_all();
@@ -376,7 +372,6 @@ void kfree(void* ptr) {
 
 
     // tell sanitizers the freed block is inaccessible
-    // TODO: move this to the end
     asan_mark_memory(pa, p->size(), true);
 
 
