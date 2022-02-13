@@ -85,19 +85,24 @@ struct pageset {
     bool is_free(page* b);  // returns true if all pages within block are free
     bool has_order(page* b, int o);  // returns true if all pages within block are free
     uint32_t index(uintptr_t addr);  // get the index of page at address addr
-    // helper functions
+
+    void freeblocks_push(page* p, int o);
+    page* freeblocks_pop(int o);
+    void freeblocks_erase(page* p, int o);
+        // helper functions
     void print_block(page* p);
     void print_pageset();
+    void print_freeblocks(unsigned count);
+
+
 
     private:
         page ps_[PAGES_COUNT];
+        list<page, &page::link_> fbs_[ORDER_COUNT];
 }; 
 
-// declare a free_blocks of block structures, each linked by their link_ member
-// TODO: turn this into a struct that allows me to pop and push blocks at specific indexes
-list<page, &page::link_> free_blocks[ORDER_COUNT];
-pageset pages;
 
+pageset pages;
 void pageset::print_block(page* p) {
     // print pages
     for(uintptr_t addr = p->first(); addr < p->last(); addr += PAGESIZE) {
@@ -112,14 +117,14 @@ void pageset::print_pageset() {
     }
 }
 
-void print_freeblocks(unsigned count) {
+void pageset::print_freeblocks(unsigned count) {
     for(int i = 0; i < ORDER_COUNT; i++) {
-        page* p = free_blocks[i].front();
+        page* p = fbs_[i].front();
         log_printf("ORDER %d =========================================\n", i + MIN_ORDER);
         unsigned iteration = 0;
         while(p && iteration < count) {
             log_printf("%p - %p\n", p->first(), p->last());
-            p = free_blocks[i].next(p);
+            p = fbs_[i].next(p);
             iteration++;
         }
         log_printf("\n");
@@ -197,13 +202,26 @@ void pageset::decrement_order(page* p) {
     increment_order_by(p, -1);
 }
 
+void pageset::freeblocks_push(page* p, int o) {
+    fbs_[o - MIN_ORDER].push_back(p);
+}
+
+page* pageset::freeblocks_pop(int o) {
+    return fbs_[o - MIN_ORDER].pop_front();
+}
+
+void pageset::freeblocks_erase(page* p, int o) {
+    fbs_[o - MIN_ORDER].erase(p);
+}
+
 void pageset::init() {
     auto irqs = page_lock.lock();
     for(uintptr_t pa = 0; pa < physical_ranges.limit(); pa += PAGESIZE) {
         if(physical_ranges.type(pa) == mem_available) {
             ps_[index(pa)].status = pg_free;
             ps_[index(pa)].addr = pa;
-            free_blocks[0].push_back(&ps_[index(pa)]);
+            freeblocks_push(&ps_[index(pa)], MIN_ORDER);
+            // free_blocks[0].push_back(&ps_[index(pa)]);
         }
     }
     page_lock.unlock(irqs);
@@ -234,9 +252,12 @@ void pageset::try_merge(page* p) {
     // merge and recurse
     increment_order(p);
     increment_order(b);
-    free_blocks[p->order - 1 - MIN_ORDER].erase(p);
-    free_blocks[p->order - 1 - MIN_ORDER].erase(b);
-    free_blocks[p->order - MIN_ORDER].push_back(l);
+    freeblocks_erase(p, p->order - 1);
+    freeblocks_erase(b, b->order - 1);
+    freeblocks_push(l, p->order);
+    // free_blocks[p->order - 1 - MIN_ORDER].erase(p);
+    // free_blocks[p->order - 1 - MIN_ORDER].erase(b);
+    // free_blocks[p->order - MIN_ORDER].push_back(l);
     try_merge(l);
 }
 
@@ -279,7 +300,7 @@ void* kalloc(size_t sz) {
     void* ptr = nullptr;
 
     // look for a free block with the desired order
-    page* p = free_blocks[order - MIN_ORDER].pop_front();
+    page* p = pages.freeblocks_pop(order);
     if(p) {
        // assert invariant
        assert(p->order == MAX_ORDER || !pages.is_free(pages.get_buddy(p)));
@@ -287,7 +308,7 @@ void* kalloc(size_t sz) {
     } else {
         // if not found, look for block with order o > order, minimizing o
         for(int o = order + 1; o <= MAX_ORDER; o++) {
-            p = free_blocks[o - MIN_ORDER].pop_front();
+            p = pages.freeblocks_pop(o);
             if(p) {
                 // if found block, assert invariants and stop looking
                 assert(o == p->order);
@@ -308,7 +329,7 @@ void* kalloc(size_t sz) {
             pages.decrement_order(p);
             b = pages.get_buddy(p);
             assert(p->order == b->order);
-            free_blocks[b->order - MIN_ORDER].push_back(b);
+            pages.freeblocks_push(b, b->order);
         }
     }
 
@@ -356,7 +377,7 @@ void kfree(void* ptr) {
     // set pages within block to free
     pages.free(p);
     // add block to free_blocks list
-    free_blocks[p->order - MIN_ORDER].push_back(p);
+    pages.freeblocks_push(p, p->order);
 
 
     // tell sanitizers the freed block is inaccessible
