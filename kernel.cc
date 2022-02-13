@@ -208,17 +208,21 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
             if (n == 0) {
                 return -1;
             }
-            void* pg = kalloc(PAGESIZE * n);
-            if (!pg) {
 
+            void* ptr = kalloc(PAGESIZE * n);
+            if (!ptr) {
                 return -1;
             }
-            for(uintptr_t va = addr, i = 0; va < addr + n * PAGESIZE; va += PAGESIZE, i++) {
-                if (vmiter(this, va).try_map(ka2pa(pg + i * PAGESIZE), PTE_PWU) < 0) {
-                    kfree(pg);
+
+            vmiter v = vmiter(this, addr);
+            for(int i = 0; i < n; i++) {
+                if(vmiter(this, addr + i * PAGESIZE).try_map(ka2pa(ptr + i * PAGESIZE), PTE_PWU) < 0) {
+                    kfree(ptr);
+                    // TODO: unmap memory
                     return -1;
                 }
             }
+
             return 0;
         }
 

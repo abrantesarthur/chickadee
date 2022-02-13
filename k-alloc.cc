@@ -224,7 +224,9 @@ void pageset::init() {
 
 void pageset::try_merge_all() {
     for(int i = 0; i < PAGES_COUNT; i++) { 
+        auto irqs = page_lock.lock();
         try_merge(&ps_[i]);
+        page_lock.unlock(irqs);
     }
 }
 
@@ -276,9 +278,10 @@ void init_kalloc() {
 //    The handout code does not free memory and allocates memory in units
 //    of pages.
 
-// TODO: think about lock strategy for pages datastructure!
 // TODO: return correct error values on failure
 void* kalloc(size_t sz) {
+    // spinlock_guard guard(page_lock);
+
     // validate size
     if(sz == 0) {
         return nullptr;
@@ -340,6 +343,8 @@ void* kalloc(size_t sz) {
     // initialize to `int3`
     memset(ptr, 0xCC, p->size());
 
+    log_printf("BLOCK: %p - %p | %d\n", p->first(), p->last(), p->order);
+
     return ptr;
 }
 
@@ -347,6 +352,8 @@ void* kalloc(size_t sz) {
 //    Free a pointer previously returned by `kalloc`. Does nothing if
 //    `ptr == nullptr`.
 void kfree(void* ptr) {
+    spinlock_guard guard(page_lock);
+    
     if(!ptr) {
         return;
     }
@@ -364,7 +371,6 @@ void kfree(void* ptr) {
     // pa must be memory returned by kalloc
     assert(p->first() == pa);
 
-    log_printf("BLOCK FIRST ADDRS: %p\n", p->first());
 
     // TODO: this should be an atomic operation!
     // set pages within block to free
