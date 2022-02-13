@@ -84,7 +84,7 @@ struct pageset {
     void allocate(page* p);     // allocate the block
     bool is_free(page* b);  // returns true if all pages within block are free
     bool has_order(page* b, int o);  // returns true if all pages within block are free
-    uintptr_t index(uintptr_t addr);  // get the index of page at address addr
+    int index(uintptr_t addr);  // get the index of page at address addr
     // helper functions
     void print_block(page* p);
     void print_pageset();
@@ -126,8 +126,7 @@ void print_freeblocks(unsigned count) {
     }
 }
 
-// TODO: cast to int
-uintptr_t pageset::index(uintptr_t addr) {
+uint32_t pageset::index(uintptr_t addr) {
     assert(addr < physical_ranges.limit());
     assert(addr % PAGESIZE == 0);
     return addr / PAGESIZE;
