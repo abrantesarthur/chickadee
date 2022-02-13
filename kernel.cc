@@ -199,6 +199,30 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
             return 0;
         }
 
+        case SYSCALL_PAGES_ALLOC: {
+            uintptr_t addr = regs->reg_rdi;
+            uintptr_t n = regs->reg_rsi;
+            if (addr >= VA_LOWEND || addr & 0xFFF) {
+                return -1;
+            }
+            if (n == 0) {
+                return -1;
+            }
+            void* pg = kalloc(PAGESIZE * n);
+            if (!pg) {
+
+                return -1;
+            }
+            for(uintptr_t va = addr, i = 0; va < addr + n * PAGESIZE; va += PAGESIZE, i++) {
+                if (vmiter(this, va).try_map(ka2pa(pg + i * PAGESIZE), PTE_PWU) < 0) {
+                    kfree(pg);
+                    return -1;
+                }
+            }
+            return 0;
+        }
+
+
         case SYSCALL_PAUSE: {
             sti();
             for (uintptr_t delay = 0; delay < 1000000; ++delay) {

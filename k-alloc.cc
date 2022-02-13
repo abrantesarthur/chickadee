@@ -277,6 +277,7 @@ void init_kalloc() {
 //    of pages.
 
 // TODO: think about lock strategy for pages datastructure!
+// TODO: return correct error values on failure
 void* kalloc(size_t sz) {
     // validate size
     if(sz == 0) {

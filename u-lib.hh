@@ -114,6 +114,14 @@ inline int sys_page_alloc(void* addr) {
     return make_syscall(SYSCALL_PAGE_ALLOC, reinterpret_cast<uintptr_t>(addr));
 }
 
+// sys_pages_alloc(addr, n)
+//    Allocate 'n' pages of memory at address `addr`. `Addr` must be page-aligned
+//    (i.e., a multiple of PAGESIZE == 4096). Return 0 on success, E_NOMEM on
+//    out of memory, and E_INVAL on invalid `addr`.
+inline int sys_pages_alloc(void* addr, uintptr_t n) {
+    return make_syscall(SYSCALL_PAGES_ALLOC, reinterpret_cast<uintptr_t>(addr), n);
+}
+
 // sys_fork()
 //    Fork the current process. On success, return the child's process ID to
 //    the parent, and return 0 to the child. On failure, return E_NOMEM on out
