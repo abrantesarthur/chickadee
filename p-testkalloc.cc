@@ -14,7 +14,6 @@ void process_main() {
     (void) sys_fork();
 
     pid_t p = sys_getpid();
-    srand(p);
 
     // The heap starts on the page right after the 'end' symbol,
     // whose address is the first address not allocated to process code
@@ -32,7 +31,7 @@ void process_main() {
 
     while (true) {
         if (rand(0, ALLOC_SLOWDOWN - 1) < p) {
-            if (heap_top == stack_bottom || sys_pages_alloc(heap_top, 2) < 0) {
+            if (heap_top == stack_bottom || sys_alloc(heap_top, 2) < 0) {
                 break;
             }
             *heap_top = p;      /* check we have write access to new page */
@@ -49,6 +48,8 @@ void process_main() {
         sys_yield();
     }
 }
+
+
 
 /**
  * @brief test cases

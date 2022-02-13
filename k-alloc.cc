@@ -5,10 +5,6 @@
 static spinlock page_lock;
 static uintptr_t next_free_pa;
 
-#define MIN_ORDER 12
-#define MAX_ORDER 21
-#define ORDER_COUNT 10
-
 enum pagestatus_t {
     pg_unavailable = 0,   // the page cannot be allocated
     pg_free = 1,          // the page is free to be allocated

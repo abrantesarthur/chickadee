@@ -65,6 +65,7 @@ struct __attribute__((aligned(4096))) proc {
 
     inline bool resumable() const;
 
+    int syscall_alloc(uintptr_t addr, uintptr_t sz);
     int syscall_fork(regstate* regs);
 
     int syscall_nasty();
@@ -201,6 +202,9 @@ extern std::atomic<unsigned long> ticks;        // number of ticks since boot
 // Number of pages in physical memory
 // TODO: define it in terms of other constants
 #define PAGES_COUNT 512
+#define MIN_ORDER 12
+#define MAX_ORDER 21
+#define ORDER_COUNT 10
 
 enum memtype_t {
     mem_nonexistent = 0,

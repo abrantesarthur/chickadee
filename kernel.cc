@@ -202,28 +202,13 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
         case SYSCALL_PAGES_ALLOC: {
             uintptr_t addr = regs->reg_rdi;
             uintptr_t n = regs->reg_rsi;
-            if (addr >= VA_LOWEND || addr & 0xFFF) {
-                return -1;
-            }
-            if (n == 0) {
-                return -1;
-            }
+            return syscall_alloc(addr, PAGESIZE * n);
+        }
 
-            void* ptr = kalloc(PAGESIZE * n);
-            if (!ptr) {
-                return -1;
-            }
-
-            vmiter v = vmiter(this, addr);
-            for(int i = 0; i < n; i++) {
-                if(vmiter(this, addr + i * PAGESIZE).try_map(ka2pa(ptr + i * PAGESIZE), PTE_PWU) < 0) {
-                    kfree(ptr);
-                    // TODO: unmap memory
-                    return -1;
-                }
-            }
-
-            return 0;
+        case SYSCALL_ALLOC: {
+            uintptr_t addr = regs->reg_rdi;
+            uintptr_t sz = regs->reg_rsi;
+            return syscall_alloc(addr, sz);
         }
 
 
@@ -284,6 +269,33 @@ int proc::syscall_nasty() {
         nasty_array[i] = 2;
     }
     return nasty_array[1] + nasty_array[2];
+}
+
+// proc::syscall_alloc(regs)
+//    Handle allocation system calls.
+// TODO: make sure this is correct
+int proc::syscall_alloc(uintptr_t addr, uintptr_t sz) {
+    if (addr >= VA_LOWEND || addr & 0xFFF) {
+        return -1;
+    }
+    if (sz == 0) {
+        return -1;
+    }
+
+    void* ptr = kalloc(sz);
+    if (!ptr) {
+        return -1;
+    }
+
+    for(uintptr_t va = addr; va < addr + sz; va += PAGESIZE, ptr += PAGESIZE) {
+        if(vmiter(this, va).try_map(ka2pa(ptr), PTE_PWU) < 0) {
+            kfree(ptr);
+            // TODO: unmap memory
+            return -1;
+        }
+    }
+
+    return 0;
 }
 
 // proc::syscall_fork(regs)

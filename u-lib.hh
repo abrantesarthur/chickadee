@@ -119,7 +119,15 @@ inline int sys_page_alloc(void* addr) {
 //    (i.e., a multiple of PAGESIZE == 4096). Return 0 on success, E_NOMEM on
 //    out of memory, and E_INVAL on invalid `addr`.
 inline int sys_pages_alloc(void* addr, uintptr_t n) {
-    return make_syscall(SYSCALL_PAGES_ALLOC, reinterpret_cast<uintptr_t>(addr), n);
+    return make_syscall(SYSCALL_PAGES_ALLOC, reinterpret_cast<uintptr_t>(addr), reinterpret_cast<uintptr_t>(n));
+}
+
+// sys_alloc(addr, n)
+//    Allocate 'sz' bytes of memory at address `addr`. `Addr` must be page-aligned
+//    (i.e., a multiple of PAGESIZE == 4096). Return 0 on success, E_NOMEM on
+//    out of memory, and E_INVAL on invalid `addr`.
+inline int sys_alloc(void* addr, uintptr_t sz) {
+    return make_syscall(SYSCALL_ALLOC, reinterpret_cast<uintptr_t>(addr), reinterpret_cast<uintptr_t>(sz));
 }
 
 // sys_fork()

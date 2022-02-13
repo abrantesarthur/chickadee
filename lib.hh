@@ -284,6 +284,7 @@ struct bitset_view {
 #define SYSCALL_MAP_CONSOLE 128
 #define SYSCALL_NASTY       129
 #define SYSCALL_PAGES_ALLOC 130
+#define SYSCALL_ALLOC       140
 
 // System call error return values
 
