@@ -356,7 +356,7 @@ void kfree(void* ptr) {
     // set pages within block to free
     pages.free(p);
     // add block to free_blocks list
-    free_blocks->push_back(p);
+    free_blocks[p->order - MIN_ORDER].push_back(p);
 
 
     // tell sanitizers the freed block is inaccessible
