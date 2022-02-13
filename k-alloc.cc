@@ -321,14 +321,11 @@ void* kalloc(size_t sz) {
     // set block's status to allocated
     pages.allocate(p);
 
-    // TODO: can ptr even be null at this point
+    // tell sanitizers the allocated page is accessible
+    asan_mark_memory(ka2pa(ptr), p->size(), false);
+    // initialize to `int3`
+    memset(ptr, 0xCC, p->size());
 
-    if (ptr) {
-        // tell sanitizers the allocated page is accessible
-        asan_mark_memory(ka2pa(ptr), p->size(), false);
-        // initialize to `int3` | NOT SURE
-        memset(ptr, 0xCC, p->size()); 
-    }
     return ptr;
 }
 
