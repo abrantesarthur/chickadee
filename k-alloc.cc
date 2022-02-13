@@ -91,12 +91,12 @@ struct pageset {
 
     private:
         page ps_[PAGES_COUNT];
-};
+}; 
 
 // declare a free_blocks of block structures, each linked by their link_ member
 // TODO: turn this into a struct that allows me to pop and push blocks at specific indexes
 list<page, &page::link_> free_blocks[ORDER_COUNT];
-pageset pagess;
+pageset pages;
 
 void pageset::print_block(page* p) {
     // print pages
@@ -246,8 +246,8 @@ void pageset::try_merge(page* p) {
 //    Initialize stuff needed by `kalloc`. Called from `init_hardware`,
 //    after `physical_ranges` is initialized.
 void init_kalloc() {
-    pagess.init();
-    pagess.try_merge_all(); 
+    pages.init();
+    pages.try_merge_all(); 
 }
 
 // kalloc(sz)
@@ -286,8 +286,8 @@ void* kalloc(size_t sz) {
         ptr = pa2kptr<void*>(p->first());
 
        // assert invariant
-       assert(p->order == MAX_ORDER || !pagess.is_free(pagess.get_buddy(p)));
-       assert(pagess.is_free(p));
+       assert(p->order == MAX_ORDER || !pages.is_free(pages.get_buddy(p)));
+       assert(pages.is_free(p));
     } else {
         // if not found, look for block with order o > order, minimizing o
         for(int o = order + 1; o <= MAX_ORDER; o++) {
@@ -295,8 +295,8 @@ void* kalloc(size_t sz) {
             if(p) {
                 // if found block, assert invariants and stop looking
                 assert(o == p->order);
-                assert(p->order == MAX_ORDER || !pagess.is_free(pagess.get_buddy(p)));
-                assert(pagess.is_free(p));
+                assert(p->order == MAX_ORDER || !pages.is_free(pages.get_buddy(p)));
+                assert(pages.is_free(p));
                 break;
             }
         }
@@ -309,8 +309,8 @@ void* kalloc(size_t sz) {
         // split block into two and free one of them as much as possible
         page* b;
         for(int o = p->order; o > order; o--) {
-            pagess.decrement_order(p);
-            b = pagess.get_buddy(p);
+            pages.decrement_order(p);
+            b = pages.get_buddy(p);
             assert(p->order == b->order);
             free_blocks[b->order - MIN_ORDER].push_back(b);
         }
@@ -325,7 +325,7 @@ void* kalloc(size_t sz) {
     assert(p->order == order);
 
     // set block's status to allocated
-    pagess.allocate(p);
+    pages.allocate(p);
 
     // TODO: can ptr even be null at this point
 
@@ -354,7 +354,7 @@ void kfree(void* ptr) {
     }
 
     // get block
-    page* p = pagess.get_block(pa);
+    page* p = pages.get_block(pa);
 
     // pa must be memory returned by kalloc
     assert(p->first() == pa);
@@ -363,7 +363,7 @@ void kfree(void* ptr) {
 
     // TODO: this should be an atomic operation!
     // set pages within block to free
-    pagess.free(p);
+    pages.free(p);
     // add block to free_blocks list
     free_blocks->push_back(p);
 
@@ -374,7 +374,7 @@ void kfree(void* ptr) {
 
 
     // try merging the block
-    return pagess.try_merge(p);
+    return pages.try_merge(p);
 }
 
 // kfree_proc(p)
