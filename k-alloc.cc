@@ -76,6 +76,8 @@ struct pageset {
     page* get_block(uintptr_t addr);    // gets first page of the block
     page* get_buddy(page* p);   // get first page in buddy block
     page* get_parent(page* p);
+    void increment_order(page*p);
+    void increment_order_by(page*p, int v);
     void decrement_order(page*p);
     void set_status(page* p, pagestatus_t s);     // update block's status
     void free(page* p);     // free the block
@@ -179,12 +181,21 @@ void pageset::allocate(page* p) {
     set_status(p, pg_allocated);
 }
 
-void pageset::decrement_order(page* p) {
+void pageset::increment_order_by(page* p, int v) {
     uintptr_t first = p->first();
     uintptr_t last = p->last();
     for(uintptr_t addr = first; addr < last; addr += PAGESIZE) {
-        ps_[index(addr)].order--;
+        ps_[index(addr)].order += v;
     }
+}
+
+
+void pageset::increment_order(page* p) {
+    increment_order_by(p, 1);
+}
+
+void pageset::decrement_order(page* p) {
+    increment_order_by(p, -1);
 }
 
 void pageset::init() {
@@ -207,40 +218,27 @@ void pageset::try_merge_all() {
 
 // TODO: should I always protect pages? What else should I protect? Some of these operations should be atomic
 void pageset::try_merge(page* p) {
-    // check if block and its buddy are both free
+    // block and buddy must be free
     page* b = get_buddy(p);
     if(!is_free(p) || !is_free(b)) {
         return;
     }
 
-
-    //buddy and block must have the same order
-    // TODO: put everything in the previous loops?
-    int order = p->order;
-    if(!has_order(p, order) || !has_order(b, order)) {
+    // block and buddy must have the same order
+    if(!has_order(p, p->order) || !has_order(b, p->order)) {
         return;
     }
-
-
-    // merge by increasing order of pages and updating free_blocks
-    // TODO: improve this
-    uintptr_t first = p->first();
-    uintptr_t last = p->last();
-    page* parent = p->is_left() ? p : b;
-    for(uintptr_t addr = first; addr < last; addr += PAGESIZE) {
-        ps_[index(addr)].order += 1;
-    }
-    first = b->first();
-    last = b->last();
-    for(uintptr_t addr = first; addr < last; addr+=PAGESIZE) {
-        ps_[index(addr)].order += 1;
-    }
-
-    free_blocks[order - MIN_ORDER].erase(p);
-    free_blocks[order - MIN_ORDER].erase(b);
-    free_blocks[order + 1 - MIN_ORDER].push_back(parent);
     
-    try_merge(parent);
+    // get left block before altering their order
+    page* l = p->is_left() ? p : b;
+
+    // merge and recurse
+    increment_order(p);
+    increment_order(b);
+    free_blocks[p->order - 1 - MIN_ORDER].erase(p);
+    free_blocks[p->order - 1 - MIN_ORDER].erase(b);
+    free_blocks[p->order - MIN_ORDER].push_back(l);
+    try_merge(l);
 }
 
 
