@@ -84,7 +84,7 @@ struct pageset {
     void allocate(page* p);     // allocate the block
     bool is_free(page* b);  // returns true if all pages within block are free
     bool has_order(page* b, int o);  // returns true if all pages within block are free
-    int index(uintptr_t addr);  // get the index of page at address addr
+    uint32_t index(uintptr_t addr);  // get the index of page at address addr
     // helper functions
     void print_block(page* p);
     void print_pageset();
@@ -281,9 +281,6 @@ void* kalloc(size_t sz) {
     // look for a free block with the desired order
     page* p = free_blocks[order - MIN_ORDER].pop_front();
     if(p) {
-        // if found, use this block
-        ptr = pa2kptr<void*>(p->first());
-
        // assert invariant
        assert(p->order == MAX_ORDER || !pages.is_free(pages.get_buddy(p)));
        assert(pages.is_free(p));
@@ -313,12 +310,10 @@ void* kalloc(size_t sz) {
             assert(p->order == b->order);
             free_blocks[b->order - MIN_ORDER].push_back(b);
         }
-
-
-        //use found block
-        // TODO: move this after else
-        ptr = pa2kptr<void*>(p->first());
     }
+
+    // found block
+    ptr = pa2kptr<void*>(p->first());
 
      // at this point, block should have the desired order
     assert(p->order == order);
