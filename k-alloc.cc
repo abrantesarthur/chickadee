@@ -86,7 +86,7 @@ struct pageset {
     bool has_order(page* b, int o);  // returns true if all pages within block are free
     uint32_t index(uintptr_t addr);  // get the index of page at address addr
 
-    void freeblocks_push(page* p, int o);
+    void freeblocks_push(page* p);
     page* freeblocks_pop(int o);
     void freeblocks_erase(page* p, int o);
         // helper functions
@@ -202,8 +202,8 @@ void pageset::decrement_order(page* p) {
     increment_order_by(p, -1);
 }
 
-void pageset::freeblocks_push(page* p, int o) {
-    fbs_[o - MIN_ORDER].push_back(p);
+void pageset::freeblocks_push(page* p) {
+    fbs_[p->order - MIN_ORDER].push_back(p);
 }
 
 page* pageset::freeblocks_pop(int o) {
@@ -220,8 +220,7 @@ void pageset::init() {
         if(physical_ranges.type(pa) == mem_available) {
             ps_[index(pa)].status = pg_free;
             ps_[index(pa)].addr = pa;
-            freeblocks_push(&ps_[index(pa)], MIN_ORDER);
-            // free_blocks[0].push_back(&ps_[index(pa)]);
+            freeblocks_push(&ps_[index(pa)]);
         }
     }
     page_lock.unlock(irqs);
@@ -254,10 +253,7 @@ void pageset::try_merge(page* p) {
     increment_order(b);
     freeblocks_erase(p, p->order - 1);
     freeblocks_erase(b, b->order - 1);
-    freeblocks_push(l, p->order);
-    // free_blocks[p->order - 1 - MIN_ORDER].erase(p);
-    // free_blocks[p->order - 1 - MIN_ORDER].erase(b);
-    // free_blocks[p->order - MIN_ORDER].push_back(l);
+    freeblocks_push(l);
     try_merge(l);
 }
 
@@ -329,7 +325,7 @@ void* kalloc(size_t sz) {
             pages.decrement_order(p);
             b = pages.get_buddy(p);
             assert(p->order == b->order);
-            pages.freeblocks_push(b, b->order);
+            pages.freeblocks_push(b);
         }
     }
 
@@ -376,8 +372,7 @@ void kfree(void* ptr) {
     // TODO: this should be an atomic operation!
     // set pages within block to free
     pages.free(p);
-    // add block to free_blocks list
-    pages.freeblocks_push(p, p->order);
+    pages.freeblocks_push(p);
 
 
     // tell sanitizers the freed block is inaccessible
