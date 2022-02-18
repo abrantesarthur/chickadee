@@ -104,7 +104,6 @@ void memusage::refresh() {
 
                 for (vmiter it(p, 0); it.low();) {
                     if (it.user()) {
-                        log_printf("mark as user %p\n", it.pa());
                         // if user accessible, mark pagetable as user
                         mark(it.pa(), f_user | f_process(pid));
                         it.next();

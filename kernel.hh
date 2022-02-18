@@ -25,7 +25,7 @@ struct elf_program;
 // Process descriptor type
 struct __attribute__((aligned(4096))) proc {
     enum pstate_t {
-        ps_blank = 0, ps_runnable = PROC_RUNNABLE, ps_faulted
+        ps_blank = 0, ps_runnable = PROC_RUNNABLE, ps_faulted, ps_exit
     };
 
     // These four members must come first:
@@ -67,6 +67,7 @@ struct __attribute__((aligned(4096))) proc {
 
     int syscall_alloc(uintptr_t addr, uintptr_t sz);
     int syscall_fork(regstate* regs);
+    void syscall_exit(int status);
 
     int syscall_nasty();
 
@@ -325,9 +326,14 @@ void* kalloc(size_t sz) __attribute__((malloc));
 //    `ptr == nullptr`.
 void kfree(void* ptr);
 
-// kfree_proc(p)
+// kfree_mem(p)
 //    Free user-accessible memory of process 'p'
-void kfree_proc(proc* p);
+void kfree_mem(proc* p);
+
+// kfree_pagetable(pagetable)
+//    Free the 'pagetable'
+void kfree_pagetable(x86_64_pagetable* pagetable);
+
 
 // operator new, operator delete
 //    Expressions like `new (std::nothrow) T(...)` and `delete x` work,

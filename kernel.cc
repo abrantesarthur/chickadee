@@ -248,6 +248,12 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
         case SYSCALL_READDISKFILE:
             return syscall_readdiskfile(regs);
 
+        case SYSCALL_EXIT: {
+            int status = regs->reg_rdi;
+            syscall_exit(status);
+            return 0;
+        }
+
         case SYSCALL_SYNC: {
             int drop = regs->reg_rdi;
             // `drop > 1` asserts that no data blocks are referenced (except
@@ -310,7 +316,7 @@ int proc::syscall_fork(regstate* regs) {
     pid_t child_pid;
 
     {
-        // requires lock to access ptable
+        // protect access to ptable
         spinlock_guard guard(ptable_lock);
         pid_t i;
         // look for available pid
@@ -327,6 +333,7 @@ int proc::syscall_fork(regstate* regs) {
         }
 
         // allocate process and assign found pid to it
+        // TODO"move to right after findinig pid
         p = knew<proc>();
         if (!p) {
             return E_NOMEM;
@@ -336,7 +343,7 @@ int proc::syscall_fork(regstate* regs) {
         // allocate pagetable for the process
         x86_64_pagetable* pagetable = kalloc_pagetable();
         if (!pagetable) {
-            kfree_proc(p);
+            kfree(p);
             ptable[child_pid] = nullptr;
             return E_NOMEM;
         }
@@ -352,15 +359,21 @@ int proc::syscall_fork(regstate* regs) {
 
                 // map page's physical address to a virtual address
                 if (!new_page || vmiter(p, it.va()).try_map(new_page, it.perm()) != 0) {
+                    // remove proces from ptable
                     ptable[child_pid] = nullptr;
-                    kfree(pagetable);
+                    // free most recently allocated memory page
                     kfree(new_page);
-                    kfree_proc(p);
+                    // free memory pages allocated in previous iterations
+                    kfree_mem(p);
+                    // free pagetable
+                    kfree_pagetable(pagetable);
+                    // free process page (struct proc and kernel stack)
+                    kfree(p);
                     return E_NOMEM;
                 }
 
                 // copy parent's page
-                memcpy(new_page, reinterpret_cast<void*>(it.va()), PAGESIZE);
+                memcpy(new_page, it.kptr(), PAGESIZE);
             }
         }
 
@@ -376,10 +389,17 @@ int proc::syscall_fork(regstate* regs) {
 
     return child_pid;
 }
+
+void proc::syscall_exit(int status) {
+    // set the state of process to ps_exit so the scheduler frees its memory
+    pstate_ = ps_exit;
+    yield_noreturn();
+}
+
+
 // proc::syscall_read(regs), proc::syscall_write(regs),
 // proc::syscall_readdiskfile(regs)
 //    Handle read and write system calls.
-
 uintptr_t proc::syscall_read(regstate* regs) {
     // This is a slow system call, so allow interrupts by default
     sti();

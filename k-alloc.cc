@@ -2,7 +2,7 @@
 #include "k-vmiter.hh"
 #include "k-lock.hh"
 
-static spinlock page_lock;
+static spinlock page_lock;  // protect pages object
 static uintptr_t next_free_pa;
 
 enum pagestatus_t {
@@ -75,7 +75,7 @@ struct pageset {
     void free(page* p);     // free the block
     void allocate(page* p);     // allocate the block
     bool is_free(page* b);  // returns true if all pages within block are free
-    bool has_order(page* b, int o);  // returns true if all pages within block are free
+    bool has_order(page* b, int o);  // returns true if all pages within block have order o
     uint32_t index(uintptr_t addr);  // get the index of page at address addr
 
     void freeblocks_push(page* p);
@@ -124,6 +124,7 @@ void pageset::print_freeblocks(unsigned count) {
 }
 
 uint32_t pageset::index(uintptr_t addr) {
+    assert(page_lock.is_locked());
     assert(addr < physical_ranges.limit());
     assert(addr % PAGESIZE == 0);
     return addr / PAGESIZE;
@@ -146,6 +147,7 @@ page* pageset::get_block(uintptr_t addr) {
 }
 
 bool pageset::is_free(page* p) {
+    assert(page_lock.is_locked());
     for(uintptr_t addr = p->first(); addr < p->last(); addr += PAGESIZE) {
         if(ps_[index(addr)].status != pg_free) {
             return false;
@@ -155,6 +157,7 @@ bool pageset::is_free(page* p) {
 }
 
 bool pageset::has_order(page* p, int order) {
+    assert(page_lock.is_locked());
     for(uintptr_t addr = p->first(); addr < p->last(); addr += PAGESIZE) {
         if(ps_[index(addr)].order != order) {
             return false;
@@ -164,6 +167,7 @@ bool pageset::has_order(page* p, int order) {
 }
 
 void pageset::set_status(page* p, pagestatus_t s) {
+    assert(page_lock.is_locked());
     for(uintptr_t addr = p->first(); addr < p->last(); addr += PAGESIZE) {
         ps_[index(addr)].status = s;
     }
@@ -178,6 +182,7 @@ void pageset::allocate(page* p) {
 }
 
 void pageset::increment_order_by(page* p, int v) {
+    assert(page_lock.is_locked());
     uintptr_t first = p->first();
     uintptr_t last = p->last();
     for(uintptr_t addr = first; addr < last; addr += PAGESIZE) {
@@ -191,18 +196,22 @@ void pageset::increment_order(page* p) {
 }
 
 void pageset::decrement_order(page* p) {
+    assert(page_lock.is_locked());
     increment_order_by(p, -1);
 }
 
 void pageset::freeblocks_push(page* p) {
+    assert(page_lock.is_locked());
     fbs_[p->order - MIN_ORDER].push_back(p);
 }
 
 page* pageset::freeblocks_pop(int o) {
+    assert(page_lock.is_locked());
     return fbs_[o - MIN_ORDER].pop_front();
 }
 
 void pageset::freeblocks_erase(page* p, int o) {
+    assert(page_lock.is_locked());
     fbs_[o - MIN_ORDER].erase(p);
 }
 
@@ -224,6 +233,7 @@ void pageset::try_merge_all() {
 
 // TODO: should I always protect pages? What else should I protect? Some of these operations should be atomic
 void pageset::try_merge(page* p) {
+    assert(page_lock.is_locked());
     // block and buddy must be free
     page* b = get_buddy(p);
     if(!is_free(p) || !is_free(b)) {
@@ -274,7 +284,7 @@ void init_kalloc() {
 
 // TODO: return correct error values on failure
 void* kalloc(size_t sz) {
-    // spinlock_guard guard(page_lock);
+    spinlock_guard guard(page_lock);
 
     // validate size
     if(sz == 0) {
@@ -301,8 +311,7 @@ void* kalloc(size_t sz) {
             p = pages.freeblocks_pop(o);
             if(p) {
                 // if found block, assert invariants and stop looking
-                // TODO: use has_order method
-                assert(o == p->order);
+                assert(pages.has_order(p, o));
                 assert(p->order == MAX_ORDER || !pages.is_free(pages.get_buddy(p)));
                 assert(pages.is_free(p));
                 break;
@@ -319,8 +328,8 @@ void* kalloc(size_t sz) {
         for(int o = p->order; o > order; o--) {
             pages.decrement_order(p);
             b = pages.get_buddy(p);
-            // TODO: use has_order method
-            assert(p->order == b->order);
+            assert(pages.has_order(p, p->order));
+            assert(pages.has_order(b, p->order));
             pages.freeblocks_push(b);
         }
     }
@@ -329,8 +338,7 @@ void* kalloc(size_t sz) {
     ptr = pa2kptr<void*>(p->first());
 
      // at this point, block should have the desired order
-    // TODO: use has_order method
-    assert(p->order == order);
+    assert(pages.has_order(p, order));
 
     // set block's status to allocated
     pages.allocate(p);
@@ -339,9 +347,6 @@ void* kalloc(size_t sz) {
     asan_mark_memory(ka2pa(ptr), p->size(), false);
     // initialize to `int3`
     memset(ptr, 0xCC, p->size());
-
-    log_printf("BLOCK: %p - %p | %d\n", p->first(), p->last(), p->order);
-
     return ptr;
 }
 
@@ -383,19 +388,29 @@ void kfree(void* ptr) {
     return pages.try_merge(p);
 }
 
-// kfree_proc(p)
-//    Free the user-accessible memory of a process and the process itself
-void kfree_proc(proc *p) {
-    if(p) {
-        for (vmiter it(p, 0); it.low(); it.next()) {
-            if (it.user()) {
-                it.kfree_page();
-            }
+// kfree_mem(p)
+//      Free the user-accessible memory of process 'p'
+void kfree_mem(proc* p) {
+    // sync with memviewer and assert that process is not in process table
+    assert(ptable_lock.is_locked());
+    assert(ptable[p->id_] == nullptr);
+    
+    // free user-accessible memory
+    for(vmiter it(p, 0); it.low(); it.next()) {
+        if(it.user() && it.pa() != CONSOLE_ADDR) {
+            it.kfree_page();
         }
-        kfree(p);
     }
 }
 
+// kfree_pagetable
+//      Free the 'pagetable'
+void kfree_pagetable( x86_64_pagetable* pagetable) {
+    for(ptiter it(pagetable); it.low(); it.next()) {
+        it.kfree_ptp();
+    }
+    kfree(reinterpret_cast<void*>(pagetable));
+}
 
 // operator new, operator delete
 //    Expressions like `new (std::nothrow) T(...)` and `delete x` work,

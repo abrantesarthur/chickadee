@@ -35,7 +35,9 @@
         "complex": "cpp",
         "functional": "cpp",
         "__availability": "cpp",
-        "system_error": "cpp"
+        "system_error": "cpp",
+        "__node_handle": "cpp",
+        "tuple": "cpp"
     },
     "C_Cpp.errorSquiggles": "Disabled"
 }

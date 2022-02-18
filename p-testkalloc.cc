@@ -31,7 +31,7 @@ void process_main() {
 
     while (true) {
         if (rand(0, ALLOC_SLOWDOWN - 1) < p) {
-            if (heap_top == stack_bottom || sys_alloc(heap_top, 4097) < 0) {
+            if (heap_top == stack_bottom || sys_alloc(heap_top, 4096) < 0) {
                 break;
             }
             *heap_top = p;      /* check we have write access to new page */

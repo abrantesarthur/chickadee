@@ -88,6 +88,26 @@ void cpustate::schedule(proc* yielding_from) {
         yielding_from = idle_task_;
     }
 
+     // process is exiting
+    if(current_->pstate_ == proc::ps_exit) {
+        // protect process table 
+        spinlock_guard guard(ptable_lock);
+
+        // remove process from ptable
+        ptable[current_->id_] = nullptr;
+
+        // free process' user-acessible memory
+        kfree_mem(current_);
+       
+        // switch away from process pagetable in all CPUs, then free it
+        // TODO: can this process be present in more CPUs? How do we handle that?
+        set_pagetable(early_pagetable);
+        kfree_pagetable(current_->pagetable_);
+
+        // free process' stack and struct proc
+        kfree(reinterpret_cast<void*>(current_));
+    }
+
     // increment schedule counter
     ++nschedule_;
 
