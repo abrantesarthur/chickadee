@@ -61,6 +61,9 @@ void boot_process_start(pid_t pid, const char* name) {
     vmiter(p, MEMSIZE_VIRTUAL - PAGESIZE).map(stkpg, PTE_PWU);
     p->regs_->reg_rsp = MEMSIZE_VIRTUAL;
 
+    // make console user-accessible so console_printf() works
+    vmiter(p, CONSOLE_ADDR).map(CONSOLE_ADDR, PTE_PWU);
+
     // add to process table (requires lock in case another CPU is already
     // running processes)
     {

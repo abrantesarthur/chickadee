@@ -207,7 +207,6 @@ void pageset::freeblocks_erase(page* p, int o) {
 }
 
 void pageset::init() {
-    auto irqs = page_lock.lock();
     for(uintptr_t pa = 0; pa < physical_ranges.limit(); pa += PAGESIZE) {
         if(physical_ranges.type(pa) == mem_available) {
             ps_[index(pa)].status = pg_free;
@@ -215,14 +214,11 @@ void pageset::init() {
             freeblocks_push(&ps_[index(pa)]);
         }
     }
-    page_lock.unlock(irqs);
 }
 
 void pageset::try_merge_all() {
     for(int i = 0; i < PAGES_COUNT; i++) { 
-        auto irqs = page_lock.lock();
         try_merge(&ps_[i]);
-        page_lock.unlock(irqs);
     }
 }
 
@@ -256,8 +252,10 @@ void pageset::try_merge(page* p) {
 //    Initialize stuff needed by `kalloc`. Called from `init_hardware`,
 //    after `physical_ranges` is initialized.
 void init_kalloc() {
+    auto irqs = page_lock.lock();
     pages.init();
-    pages.try_merge_all(); 
+    pages.try_merge_all();
+    page_lock.unlock(irqs); 
 }
 
 // kalloc(sz)
@@ -303,6 +301,7 @@ void* kalloc(size_t sz) {
             p = pages.freeblocks_pop(o);
             if(p) {
                 // if found block, assert invariants and stop looking
+                // TODO: use has_order method
                 assert(o == p->order);
                 assert(p->order == MAX_ORDER || !pages.is_free(pages.get_buddy(p)));
                 assert(pages.is_free(p));
@@ -320,6 +319,7 @@ void* kalloc(size_t sz) {
         for(int o = p->order; o > order; o--) {
             pages.decrement_order(p);
             b = pages.get_buddy(p);
+            // TODO: use has_order method
             assert(p->order == b->order);
             pages.freeblocks_push(b);
         }
@@ -329,6 +329,7 @@ void* kalloc(size_t sz) {
     ptr = pa2kptr<void*>(p->first());
 
      // at this point, block should have the desired order
+    // TODO: use has_order method
     assert(p->order == order);
 
     // set block's status to allocated

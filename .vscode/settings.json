@@ -34,7 +34,8 @@
         "algorithm": "cpp",
         "complex": "cpp",
         "functional": "cpp",
-        "__availability": "cpp"
+        "__availability": "cpp",
+        "system_error": "cpp"
     },
     "C_Cpp.errorSquiggles": "Disabled"
 }
