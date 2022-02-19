@@ -13,9 +13,11 @@
 
 // # timer interrupts so far on CPU 0
 std::atomic<unsigned long> ticks;
+proc* init_process = nullptr;
 
 static void tick();
 static void boot_process_start(pid_t pid, const char* program_name);
+static void init_process_start();
 
 // kernel_start(command)
 //    Initialize the hardware and processes and start running. The `command`
@@ -31,11 +33,38 @@ void kernel_start(const char* command) {
         ptable[i] = nullptr;
     }
 
-    // start first process
-    boot_process_start(1, CHICKADEE_FIRST_PROCESS);
+    // start init process
+    init_process_start();
+
+    // start boot process
+    boot_process_start(2, CHICKADEE_FIRST_PROCESS);
 
     // start running processes
     cpus[0].schedule(nullptr);
+}
+
+// init_process_function()
+//      function that the init process executes. Simply yield forever
+void init_process_function() {
+    sti();
+    while(true) {
+        init_process->yield();
+    }
+}
+
+// init_process_start()
+//      initialize the init process and enqueue it to run
+void init_process_start() {
+    init_process = knew<proc>();
+    assert(init_process);
+    init_process->init_kernel(1, init_process_function);
+    init_process->ppid_ = init_process->id_;
+    {
+        spinlock_guard guard(ptable_lock);
+        assert(!ptable[1]);
+        ptable[1] = init_process;
+    }
+    cpus[init_process->id_ % ncpu].enqueue(init_process);
 }
 
 // boot_process_start(pid, name)
@@ -56,8 +85,12 @@ void boot_process_start(pid_t pid, const char* name) {
     p->init_user(pid, ld.pagetable_);
     p->regs_->reg_rip = ld.entry_rip_;
 
-    // set ppid to itself
-    p->ppid_ = p->id_;
+    // set ppid to init process ID
+    assert(init_process);
+    p->ppid_ = init_process->id_;
+
+    // add boot process to init process children list
+    init_process->children_.push_front(p);
 
     void* stkpg = kalloc(PAGESIZE);
     assert(stkpg);
@@ -252,7 +285,11 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
             return syscall_readdiskfile(regs);
 
         case SYSCALL_GETPPID: {
-            return syscall_getppid(regs);
+            // avoid ppid_ race conditions with exit
+            auto irqs = ptable_lock.lock();
+            ppid_t ppid = ppid_;
+            ptable_lock.unlock(irqs);
+            return ppid;
         }
 
         case SYSCALL_EXIT: {
@@ -285,10 +322,6 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
             log_printf("%d: no such system call %u\n", id_, regs->reg_rax);
             return E_NOSYS;
     }
-}
-
-pid_t proc::syscall_getppid(regstate* regs) {
-    return ppid_;
 }
 
 int proc::syscall_nasty() {
@@ -427,8 +460,28 @@ int proc::syscall_fork(regstate* regs) {
 }
 
 void proc::syscall_exit(int status) {
-    // set the state of process to ps_exit so the scheduler frees its memory
-    pstate_ = ps_exit;
+    {
+        // synchronize with syscall_getppid
+        spinlock_guard guard(ptable_lock);
+
+        // remove process from ptable
+        ptable[id_] = nullptr;
+
+        // remove process from its parent's list of children
+        children_links_.erase();
+
+        // reparent process' children
+        proc* child = children_.pop_front();
+        while(child) {
+            child->ppid_ = init_process->id_;
+            init_process->children_.push_front(child);
+            child = children_.pop_front();
+        }
+
+        // set the state of process to ps_exit so the scheduler frees its memory
+        pstate_ = ps_exit;
+    }
+
     yield_noreturn();
 }
 

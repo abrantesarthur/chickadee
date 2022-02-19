@@ -93,9 +93,6 @@ void cpustate::schedule(proc* yielding_from) {
         // protect process table 
         spinlock_guard guard(ptable_lock);
 
-        // remove process from ptable
-        ptable[current_->id_] = nullptr;
-
         // free process' user-acessible memory
         kfree_mem(current_);
        
