@@ -56,6 +56,9 @@ void boot_process_start(pid_t pid, const char* name) {
     p->init_user(pid, ld.pagetable_);
     p->regs_->reg_rip = ld.entry_rip_;
 
+    // set ppid to itself
+    p->ppid_ = p->id_;
+
     void* stkpg = kalloc(PAGESIZE);
     assert(stkpg);
     vmiter(p, MEMSIZE_VIRTUAL - PAGESIZE).map(stkpg, PTE_PWU);
@@ -248,6 +251,10 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
         case SYSCALL_READDISKFILE:
             return syscall_readdiskfile(regs);
 
+        case SYSCALL_GETPPID: {
+            return syscall_getppid(regs);
+        }
+
         case SYSCALL_EXIT: {
             int status = regs->reg_rdi;
             syscall_exit(status);
@@ -278,6 +285,10 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
             log_printf("%d: no such system call %u\n", id_, regs->reg_rax);
             return E_NOSYS;
     }
+}
+
+pid_t proc::syscall_getppid(regstate* regs) {
+    return ppid_;
 }
 
 int proc::syscall_nasty() {
@@ -322,7 +333,6 @@ int proc::syscall_alloc(uintptr_t addr, uintptr_t sz) {
 int proc::syscall_fork(regstate* regs) {
     proc* p;
     pid_t child_pid;
-
     {
         // protect access to ptable
         spinlock_guard guard(ptable_lock);
@@ -402,6 +412,12 @@ int proc::syscall_fork(regstate* regs) {
 
         // set %rax so 0 gets returned to child
         p->regs_->reg_rax = 0;
+
+        // set child's ppid
+        p->ppid_ = this->id_;
+        
+        // add child to this process' children
+        children_.push_front(p);
 
         // add child to a cpu
         cpus[child_pid % ncpu].enqueue(p);

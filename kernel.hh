@@ -30,6 +30,7 @@ struct __attribute__((aligned(4096))) proc {
 
     // These four members must come first:
     pid_t id_ = 0;                             // Process ID
+    pid_t ppid_;                               // Parents process ID
     regstate* regs_ = nullptr;                 // Process's current registers
     yieldstate* yields_ = nullptr;             // Process's current yield state
     std::atomic<int> pstate_ = ps_blank;       // Process state
@@ -41,6 +42,10 @@ struct __attribute__((aligned(4096))) proc {
 #endif
 
     list_links runq_links_;
+
+    list_links children_links_;
+
+    list<proc, &proc::children_links_> children_;
 
 
     proc();
@@ -68,6 +73,7 @@ struct __attribute__((aligned(4096))) proc {
     int syscall_alloc(uintptr_t addr, uintptr_t sz);
     int syscall_fork(regstate* regs);
     void syscall_exit(int status);
+    pid_t syscall_getppid(regstate* regs);
 
     int syscall_nasty();
 
