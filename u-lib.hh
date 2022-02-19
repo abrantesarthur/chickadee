@@ -161,7 +161,7 @@ inline int sys_nasty() {
 // sys_msleep(msec)
 //    Block for approximately `msec` milliseconds.
 inline int sys_msleep(unsigned msec) {
-    return E_NOSYS;
+    return make_syscall(SYSCALL_SLEEP, msec);
 }
 
 // sys_getppid()

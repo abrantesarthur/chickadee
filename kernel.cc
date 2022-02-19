@@ -254,6 +254,14 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
             return 0;
         }
 
+        case SYSCALL_SLEEP: {
+            unsigned long wakeup_time = ticks + (regs->reg_rdi + 9) / 10;
+            while(long(wakeup_time - ticks) > 0) {
+                this->yield();
+            }
+            return 0;
+        }
+
         case SYSCALL_SYNC: {
             int drop = regs->reg_rdi;
             // `drop > 1` asserts that no data blocks are referenced (except
@@ -353,7 +361,7 @@ int proc::syscall_fork(regstate* regs) {
 
         // copy the parent process' user-accessible memory
         for (vmiter it(this, 0); it.low(); it.next()) {
-            if (it.user()) {
+            if (it.user() && it.pa() != CONSOLE_ADDR) {
                 // allocate new page
                 void* new_page = kalloc(PAGESIZE);
 
@@ -374,6 +382,18 @@ int proc::syscall_fork(regstate* regs) {
 
                 // copy parent's page
                 memcpy(new_page, it.kptr(), PAGESIZE);
+            } else if (it.pa() == CONSOLE_ADDR) {
+                if(vmiter(p, it.va()).try_map(CONSOLE_ADDR, it.perm()) < 0) {
+                    // remove proces from ptable
+                    ptable[child_pid] = nullptr;
+                    // free memory pages allocated in previous iterations
+                    kfree_mem(p);
+                    // free pagetable
+                    kfree_pagetable(pagetable);
+                    // free process page (struct proc and kernel stack)
+                    kfree(p);
+                    return E_NOMEM;
+                }
             }
         }
 
