@@ -90,14 +90,15 @@ void cpustate::schedule(proc* yielding_from) {
 
      // process is exiting
     if(current_->pstate_ == proc::ps_exit) {
-        // protect process table 
-        spinlock_guard guard(ptable_lock);
+        // by this point, process should be out of the ptable to
+        // respect the Page table invariants
 
         // free process' user-acessible memory
         kfree_mem(current_);
        
-        // switch away from process pagetable in all CPUs, then free it
-        // TODO: can this process be present in more CPUs? How do we handle that?
+        // switch away from process pagetable, then free it
+        // a process can run on only one cpu at a time, so we don't need to
+        // switch pagetables in other CPUs
         set_pagetable(early_pagetable);
         kfree_pagetable(current_->pagetable_);
 

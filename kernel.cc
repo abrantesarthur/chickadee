@@ -287,7 +287,7 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
         case SYSCALL_GETPPID: {
             // avoid ppid_ race conditions with exit
             auto irqs = ptable_lock.lock();
-            ppid_t ppid = ppid_;
+            pid_t ppid = ppid_;
             ptable_lock.unlock(irqs);
             return ppid;
         }
@@ -461,10 +461,10 @@ int proc::syscall_fork(regstate* regs) {
 
 void proc::syscall_exit(int status) {
     {
-        // synchronize with syscall_getppid
+        // protect acess to process table and synchronize with syscall_getppid
         spinlock_guard guard(ptable_lock);
 
-        // remove process from ptable
+        // remove process from process table
         ptable[id_] = nullptr;
 
         // remove process from its parent's list of children
