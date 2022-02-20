@@ -27,6 +27,7 @@ This invariant syncrhonizes write access to the `ppid_` by an exiting parent and
 
 ###### pageset pages
 
--
+- access to `pageset pages` must be synchronized with the `page_lock`, except:
+  - When initializing `pageset pages` with `kalloc_init`
 
 ## Grading notes
