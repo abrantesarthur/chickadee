@@ -148,9 +148,9 @@ void kfree_mem(proc* p) {
 // kfree_pagetable
 //      Free the 'pagetable'
 void kfree_pagetable( x86_64_pagetable* pagetable) {
-    // assumes that process 'p' is no longer in the ptable
+    // assumes that process who owns the pagetable is no longer in the ptable
     // to avoid synchronization conflicts with memviewer
-    
+
     for(ptiter it(pagetable); it.low(); it.next()) {
         it.kfree_ptp();
     }

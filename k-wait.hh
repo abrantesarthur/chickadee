@@ -17,21 +17,53 @@ inline waiter::~waiter() {
     // optional error-checking code
 }
 
+// prepare(wq)
+//      set waiter process to blocked and add it to the waitqueue
 inline void waiter::prepare(wait_queue& wq) {
-    // your code here
+    spinlock_guard g(wq.lock_);
+    p_ = current();
+    // TODO: synchronize access to state_
+    p_->pstate_ = proc::ps_blocked;
+    // make this waiter's and process' wq point to same wait_queue
+    p_->wq_ = &wq;
+    wq_ = &wq;
+    // add this waiter (i.e., the process) to wait queue
+    wq.q_.push_front(this);
 }
 
+// block()
+//      yield if the current process is blocked and wake it otherwise.
 inline void waiter::block() {
     assert(p_ == current());
-    // your code here
+    // TODO: synchronize access to pstate_
+    if(p_->pstate_ == proc::ps_blocked) {
+        p_->yield();
+    }
+    // we will reach this only if process is not blocked
+    clear();
 }
 
+// clear()
+//      wake process, clear its waiter, and remove it from wait queue
 inline void waiter::clear() {
-    // your code here
+    spinlock_guard g(wq_->lock_);
+    // TODO: should we not wake the process just at the end of clearing? What bad things could happen if process is scheduled again before we're done clearing?
+    wake();
+    p_->wq_ = nullptr;
+    // TODO: is this necessary?
+    p_ = nullptr;
+    if(links_.is_linked()) {
+        wq_->q_.erase(this);
+    }
+    // TODO: is this necessary?
+    wq_ = nullptr;
 }
 
+// wake()
+//      set process to runnable and schedule it to run
 inline void waiter::wake() {
-    // your code here
+    assert(wq_->lock_.is_locked());
+    p_->wake();
 }
 
 

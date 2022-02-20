@@ -87,25 +87,7 @@ void cpustate::schedule(proc* yielding_from) {
     if (current_ == idle_task_) {
         yielding_from = idle_task_;
     }
-
-     // process is exiting
-    if(current_->pstate_ == proc::ps_exit) {
-        // by this point, process should be out of the ptable to
-        // respect the Page table invariants
-
-        // free process' user-acessible memory
-        kfree_mem(current_);
-       
-        // switch away from process pagetable, then free it
-        // a process can run on only one cpu at a time, so we don't need to
-        // switch pagetables in other CPUs
-        set_pagetable(early_pagetable);
-        kfree_pagetable(current_->pagetable_);
-
-        // free process' stack and struct proc
-        kfree(reinterpret_cast<void*>(current_));
-    }
-
+    
     // increment schedule counter
     ++nschedule_;
 

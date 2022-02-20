@@ -7,6 +7,11 @@
 #include "k-vmiter.hh"
 #include "obj/k-firstprocess.h"
 
+/**
+ * TODO 1: add cpuindex_ to proc struct
+ * 
+ */
+
 // kernel.cc
 //
 //    This is the kernel.
@@ -14,6 +19,7 @@
 // # timer interrupts so far on CPU 0
 std::atomic<unsigned long> ticks;
 proc* init_process = nullptr;
+wait_queue wait_child_exit_wq;
 
 static void tick();
 static void boot_process_start(pid_t pid, const char* program_name);
@@ -44,13 +50,14 @@ void kernel_start(const char* command) {
 }
 
 // init_process_function()
-//      function that the init process executes. Simply yield forever
+//      function that the init process executes
 void init_process_function() {
-    sti();
-    while(true) {
-        init_process->yield();
+    // sti();
+    while(init_process->syscall_waitpid(0, nullptr, W_NOHANG) != E_CHILD) {
     }
+    process_halt();
 }
+
 
 // init_process_start()
 //      initialize the init process and enqueue it to run
@@ -98,7 +105,9 @@ void boot_process_start(pid_t pid, const char* name) {
     p->regs_->reg_rsp = MEMSIZE_VIRTUAL;
 
     // make console user-accessible so console_printf() works
-    vmiter(p, CONSOLE_ADDR).map(CONSOLE_ADDR, PTE_PWU);
+    if (vmiter(p, ktext2pa(console)).try_map(CONSOLE_ADDR, PTE_PWU) < 0) {
+        assert(false);
+    }
 
     // add to process table (requires lock in case another CPU is already
     // running processes)
@@ -140,6 +149,7 @@ void proc::exception(regstate* regs) {
             if (cpu->cpuindex_ == 0) {
                 tick();
             }
+            // TODO: wake_all()
             lapicstate::get().ack();
             regs_ = regs;
             yield_noreturn();
@@ -285,11 +295,16 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
             return syscall_readdiskfile(regs);
 
         case SYSCALL_GETPPID: {
-            // avoid ppid_ race conditions with exit
-            auto irqs = ptable_lock.lock();
-            pid_t ppid = ppid_;
-            ptable_lock.unlock(irqs);
-            return ppid;
+            // synchronize access to ppid_ with exit
+            spinlock_guard g(ptable_lock);
+            return ppid_;
+        }
+
+        case SYSCALL_WAITPID: {
+            pid_t pid = regs->reg_rdi;
+            int* status = reinterpret_cast<int*>(regs->reg_rsi);
+            int options = regs->reg_rdx;
+            return syscall_waitpid(pid, status, options);
         }
 
         case SYSCALL_EXIT: {
@@ -297,7 +312,8 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
             syscall_exit(status);
             return 0;
         }
-
+        
+        // TODO: update to user waiter and set sleeping_ flag
         case SYSCALL_SLEEP: {
             unsigned long wakeup_time = ticks + (regs->reg_rdi + 9) / 10;
             while(long(wakeup_time - ticks) > 0) {
@@ -363,6 +379,7 @@ int proc::syscall_alloc(uintptr_t addr, uintptr_t sz) {
 //    Handle fork system call.
 // TODO: use goto statements for cleaner deallocation (see lecture 6)
 // TODO: should I use page_lock to protect memory allocation data
+// TODO: consider enabling interrutps before copying memory
 int proc::syscall_fork(regstate* regs) {
     proc* p;
     pid_t child_pid;
@@ -459,16 +476,17 @@ int proc::syscall_fork(regstate* regs) {
     return child_pid;
 }
 
+// syscall_exit(status)
+//      initiates process' exiting by making it non-runnable,
+//      reparenting its children, freeing its user-accessible memory,
+//      and waking up its parent so it can finish the exit process.
+
+// TODO: for now, set status to non-runnable, but don't remove it
+// from parent's children list and don't remove its stack memory
 void proc::syscall_exit(int status) {
     {
-        // protect acess to process table and synchronize with syscall_getppid
+        // synchronize access to pstate_ and to ppid_
         spinlock_guard guard(ptable_lock);
-
-        // remove process from process table
-        ptable[id_] = nullptr;
-
-        // remove process from its parent's list of children
-        children_links_.erase();
 
         // reparent process' children
         proc* child = children_.pop_front();
@@ -478,13 +496,112 @@ void proc::syscall_exit(int status) {
             child = children_.pop_front();
         }
 
-        // set the state of process to ps_exit so the scheduler frees its memory
-        pstate_ = ps_exit;
-    }
+        // set the state of process to ps_nonrunnable parent finishes exit process
+        pstate_ = ps_nonrunnable;
 
+        // set exit status to be retrieved later when parent calls waitpid
+        exit_status_ = status;
+
+         // free process' user-acessible memory
+        kfree_mem(this);
+
+        // wake all processes waiting for child to exit
+        wait_child_exit_wq.wake_all();
+    }
     yield_noreturn();
 }
 
+// kill_zombie(zombie, status)
+//      removes zombie from ptable and from parent's children's list.
+//      frees zombie's resources (i.e, pagetables, struct proc, and kernel task stack), saves its
+//      exit status in 'status', and return its pid to the caller.
+pid_t proc::kill_zombie(proc* zombie, int* status) {
+    // assert that access to ptable and ppid_ is protected
+    assert(ptable_lock.is_locked());
+    // assert zombie is a child of this process
+    assert(zombie->ppid_ == id_);
+    
+    // save zombie's exit status to 'status'
+    if(status) {
+        *status = zombie->exit_status_;
+    }
+
+    // remove zombie from ptable and children' list
+    pid_t zid = zombie->id_;
+    ptable[zid] = nullptr;
+    children_.erase(zombie);
+
+    // free zombie's resources. This would work even if ptable_lock
+    // was not acquired, since zombie is no longer at ptable at this point.
+    // Hence, there are no synchronization conflicts with memviewer::refresh()
+    kfree_pagetable(zombie->pagetable_);
+    kfree(zombie);
+    
+    return zid;
+}
+
+pid_t proc::syscall_waitpid(pid_t pid, int* status, int options) {
+    // synchronize access to pstate_
+    spinlock_guard g(ptable_lock);
+
+    proc* child = children_.front();
+    if(!child) {
+        return E_CHILD;
+    }
+
+    if(pid == 0) {
+        // wait for any child
+        if(options == W_NOHANG) {
+            // iterate once over children looking for zombies
+            while(child) {
+                if(child->pstate_ == proc::ps_nonrunnable) {
+                    return kill_zombie(child, status);
+                }
+                child = children_.next(child);
+            }
+            // W_NOHANG means not blocking
+            return E_AGAIN;
+        }
+
+        // block until any child exits, but release ptable_lock while blocking
+        waiter w;
+        w.block_until(wait_child_exit_wq, [&] () {
+            child = children_.next(child);
+            // loop back if out of children
+            if(!child) {
+                child = children_.front();
+            }
+            return child->pstate_ == proc::ps_nonrunnable;
+        }, g);
+
+        // now, child state is ps_nonrunnable, so kill zombie
+        return kill_zombie(child, status);
+    }
+    
+    // wait for specific child with id 'pid'
+    while(child) {
+        if(child->id_ != pid) {
+            child = children_.next(child);
+        } else {
+            // found the child
+            if(options == W_NOHANG) {
+                // don't block
+                if(child->pstate_ != proc::ps_nonrunnable) {
+                    return E_AGAIN;
+                }
+                return kill_zombie(child, status);
+            }
+            // block until child exits, releasing ptable_lock while doing so
+            waiter w;
+            w.block_until(wait_child_exit_wq, [&] () {
+                return (child->pstate_ == proc::ps_nonrunnable);
+            }, g);
+            return kill_zombie(child, status);
+        }
+    }
+    // did not find the child
+    return E_CHILD;
+}
 
 // proc::syscall_read(regs), proc::syscall_write(regs),
 // proc::syscall_readdiskfile(regs)

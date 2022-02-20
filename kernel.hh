@@ -25,7 +25,11 @@ struct elf_program;
 // Process descriptor type
 struct __attribute__((aligned(4096))) proc {
     enum pstate_t {
-        ps_blank = 0, ps_runnable = PROC_RUNNABLE, ps_faulted, ps_exit
+        ps_blank = 0,
+        ps_runnable = PROC_RUNNABLE,
+        ps_nonrunnable,
+        ps_faulted,
+        ps_blocked
     };
 
     // These four members must come first:
@@ -34,6 +38,8 @@ struct __attribute__((aligned(4096))) proc {
     regstate* regs_ = nullptr;                 // Process's current registers
     yieldstate* yields_ = nullptr;             // Process's current yield state
     std::atomic<int> pstate_ = ps_blank;       // Process state
+    int exit_status_;                          // Process exit status
+    wait_queue* wq_ = nullptr;                 // Wait queue where process may be blocked
 
     x86_64_pagetable* pagetable_ = nullptr;    // Process's page table
     uintptr_t recent_user_rip_ = 0;            // Most recent user-mode %rip
@@ -74,12 +80,16 @@ struct __attribute__((aligned(4096))) proc {
     int syscall_fork(regstate* regs);
     void syscall_exit(int status);
     pid_t syscall_getppid(regstate* regs);
+    pid_t syscall_waitpid(pid_t pid, int* status, int options);
+    pid_t kill_zombie(proc* zombie, int* status);
 
     int syscall_nasty();
 
     uintptr_t syscall_read(regstate* reg);
     uintptr_t syscall_write(regstate* reg);
     uintptr_t syscall_readdiskfile(regstate* reg);
+
+    void wake();
 
     inline irqstate lock_pagetable_read();
     inline void unlock_pagetable_read(irqstate& irqs);
