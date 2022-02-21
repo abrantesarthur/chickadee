@@ -40,6 +40,7 @@ struct __attribute__((aligned(4096))) proc {
     std::atomic<int> pstate_ = ps_blank;       // Process state
     int exit_status_;                          // Process exit status
     wait_queue* wq_ = nullptr;                 // Wait queue where process may be blocked
+    bool sleeping_ = false;                    // Whether the process is sleeping
 
     x86_64_pagetable* pagetable_ = nullptr;    // Process's page table
     uintptr_t recent_user_rip_ = 0;            // Most recent user-mode %rip

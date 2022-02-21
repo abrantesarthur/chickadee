@@ -9,7 +9,7 @@
 
 /**
  * TODO 1: add cpuindex_ to proc struct
- * 
+ * TODO 2: create a q of processes waiting to be woken up
  */
 
 // kernel.cc
@@ -19,7 +19,11 @@
 // # timer interrupts so far on CPU 0
 std::atomic<unsigned long> ticks;
 proc* init_process = nullptr;
+
+// wait queues
 wait_queue wait_child_exit_wq;
+#define SLEEP_WQS_COUNT 10
+wait_queue sleep_wqs[SLEEP_WQS_COUNT];
 
 static void tick();
 static void boot_process_start(pid_t pid, const char* program_name);
@@ -149,7 +153,7 @@ void proc::exception(regstate* regs) {
             if (cpu->cpuindex_ == 0) {
                 tick();
             }
-            // TODO: wake_all()
+            sleep_wqs[ticks % SLEEP_WQS_COUNT].wake_all();
             lapicstate::get().ack();
             regs_ = regs;
             yield_noreturn();
@@ -313,12 +317,17 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
             return 0;
         }
         
-        // TODO: update to user waiter and set sleeping_ flag
+        // TODO: introduce interrupts
         case SYSCALL_SLEEP: {
+            // synchronize access to sleeping_
+            spinlock_guard g(ptable_lock);
             unsigned long wakeup_time = ticks + (regs->reg_rdi + 9) / 10;
-            while(long(wakeup_time - ticks) > 0) {
-                this->yield();
-            }
+            sleeping_ = true;
+            waiter w;
+            w.block_until(sleep_wqs[wakeup_time % SLEEP_WQS_COUNT], [&] () {
+                return (long(wakeup_time - ticks) < 0);
+            }, g);
+            sleeping_ = false;
             return 0;
         }
 
@@ -480,9 +489,7 @@ int proc::syscall_fork(regstate* regs) {
 //      initiates process' exiting by making it non-runnable,
 //      reparenting its children, freeing its user-accessible memory,
 //      and waking up its parent so it can finish the exit process.
-
-// TODO: for now, set status to non-runnable, but don't remove it
-// from parent's children list and don't remove its stack memory
+// TODO: add syscall interrupts
 void proc::syscall_exit(int status) {
     {
         // synchronize access to pstate_ and to ppid_
@@ -505,7 +512,16 @@ void proc::syscall_exit(int status) {
          // free process' user-acessible memory
         kfree_mem(this);
 
+        // wakeup parent from sleep_wq
+        proc* parent = ptable[ppid_];
+        if(parent && parent->sleeping_) {
+            // parent->received_intr_ = true;
+            parent->wq_->wake_all();
+            // sleeping_ will be set to true after SYSCALL_SLEEP resumes
+        }
+
         // wake all processes waiting for child to exit
+        // TODO: why do we need this since we already woke parent from sleep_wq?
         wait_child_exit_wq.wake_all();
     }
     yield_noreturn();
@@ -563,7 +579,8 @@ pid_t proc::syscall_waitpid(pid_t pid, int* status, int options) {
             return E_AGAIN;
         }
 
-        // block until any child exits, but release ptable_lock while blocking
+        // set state to blocked with lock held and release the lock before actually sleeping.
+        // this avoids the lost wakeup problem 
         waiter w;
         w.block_until(wait_child_exit_wq, [&] () {
             child = children_.next(child);
