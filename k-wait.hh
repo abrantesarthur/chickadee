@@ -24,8 +24,6 @@ inline void waiter::prepare(wait_queue& wq) {
     p_ = current();
     // TODO: synchronize access to state_
     p_->pstate_ = proc::ps_blocked;
-    // make this waiter's and process' wq point to same wait_queue
-    p_->wq_ = &wq;
     wq_ = &wq;
     // add this waiter (i.e., the process) to wait queue
     wq.q_.push_front(this);
@@ -44,25 +42,19 @@ inline void waiter::block() {
 }
 
 // clear()
-//      wake process, clear its waiter, and remove it from wait queue
+//      remove waiter from wait queue and wake its corresponding process
 inline void waiter::clear() {
     spinlock_guard g(wq_->lock_);
-    // TODO: should we not wake the process just at the end of clearing? What bad things could happen if process is scheduled again before we're done clearing?
-    wake();
-    p_->wq_ = nullptr;
-    // TODO: is this necessary?
-    p_ = nullptr;
     if(links_.is_linked()) {
         wq_->q_.erase(this);
     }
-    // TODO: is this necessary?
-    wq_ = nullptr;
+    // wake process after removing it from wait queue
+    wake();
 }
 
 // wake()
 //      set process to runnable and schedule it to run
 inline void waiter::wake() {
-    assert(wq_->lock_.is_locked());
     p_->wake();
 }
 
@@ -117,6 +109,21 @@ inline void wait_queue::wake_all() {
     spinlock_guard guard(lock_);
     while (auto w = q_.pop_front()) {
         w->wake();
+    }
+}
+
+// wait_queue::wake_proc(p)
+//    look for waiter with process 'p' and wake it found
+inline void wait_queue::wake_proc(proc* p) {
+    spinlock_guard guard(lock_);
+    waiter* w = q_.front();
+    while(w) {
+        if(w->p_ == p) {
+            q_.erase(w);
+            w->wake();
+            return;
+        }
+        w = q_.next(w);
     }
 }
 

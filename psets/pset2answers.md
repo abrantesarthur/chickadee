@@ -28,6 +28,11 @@ Leave your name out of this file. Put collaboration notes and credit in
 ###### proc::sleeping\_
 
 - TODO: are we using ptable_lock? Is there a better strategy?
+- TODO: probably make a variant that only SYSCALL_SLEEP can set this variable or something
+
+###### proc::got_interrupted\_
+
+- TODO: only the child may set interrupted\_ to true and only the process may set it to false.
 
 ###### process hiearchy
 

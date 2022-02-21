@@ -115,6 +115,8 @@ void cpustate::schedule(proc* yielding_from) {
 
     // run `current_`
     set_pagetable(current_->pagetable_);
+    // increase resume count
+    current_->resume_count_++;
     current_->resume(); // does not return
 }
 

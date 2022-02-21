@@ -325,9 +325,13 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
             sleeping_ = true;
             waiter w;
             w.block_until(sleep_wqs[wakeup_time % SLEEP_WQS_COUNT], [&] () {
-                return (long(wakeup_time - ticks) < 0);
+                return (long(wakeup_time - ticks) < 0 || interrupted_);
             }, g);
             sleeping_ = false;
+            if(interrupted_) {
+                interrupted_ = false;
+                return E_INTR;
+            }
             return 0;
         }
 
@@ -512,17 +516,14 @@ void proc::syscall_exit(int status) {
          // free process' user-acessible memory
         kfree_mem(this);
 
-        // wakeup parent from sleep_wq
+        // interrupt parent if it's sleeping
         proc* parent = ptable[ppid_];
-        if(parent && parent->sleeping_) {
-            // parent->received_intr_ = true;
-            parent->wq_->wake_all();
-            // sleeping_ will be set to true after SYSCALL_SLEEP resumes
+        if(parent->sleeping_) {
+            parent->interrupted_ = true;
         }
-
-        // wake all processes waiting for child to exit
-        // TODO: why do we need this since we already woke parent from sleep_wq?
-        wait_child_exit_wq.wake_all();
+        
+        // wake parent if it's waiting for child to exit
+        wait_child_exit_wq.wake_proc(parent);
     }
     yield_noreturn();
 }

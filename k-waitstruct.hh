@@ -42,6 +42,7 @@ struct wait_queue {
 
     // you might want to provide some convenience methods here
     inline void wake_all();
+    inline void wake_proc(proc* p);
 };
 
 #endif
