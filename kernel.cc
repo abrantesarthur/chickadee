@@ -317,16 +317,13 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
             return 0;
         }
         
-        // TODO: introduce interrupts
         case SYSCALL_SLEEP: {
-            // synchronize access to sleeping_
-            spinlock_guard g(ptable_lock);
             unsigned long wakeup_time = ticks + (regs->reg_rdi + 9) / 10;
             sleeping_ = true;
             waiter w;
             w.block_until(sleep_wqs[wakeup_time % SLEEP_WQS_COUNT], [&] () {
                 return (long(wakeup_time - ticks) < 0 || interrupted_);
-            }, g);
+            });
             sleeping_ = false;
             if(interrupted_) {
                 interrupted_ = false;
