@@ -9,7 +9,7 @@ Leave your name out of this file. Put collaboration notes and credit in
 
 ##### Performance
 
-- I added a `list_links children_links_` and a `children_` list to each `struct proc`. The former allows a process to be added as a child of another process. The latter allows a process to keep track of its children. This way, when a process is exiting, it can reparent its children in `O(C)` time, where `C` is its number of children, by iterating over `children_n`
+- I added a `list_links children_links_` and a `children_` list to each `struct proc`. The former allows a process to be added as a child of another process. The latter allows a process to keep track of its own children. This way, when a process is exiting, it can reparent its children in `O(C)` time, where `C` is its number of children, by iterating over `children_`
 
 ##### Synchronization invariantes
 
@@ -17,18 +17,20 @@ Leave your name out of this file. Put collaboration notes and credit in
 
 - reading and writing to `proc::ppid_` requires the `ptable_lock`
 
-  This invariant syncrhonizes write access to the `ppid_` by an exiting parent and read access by the child. It also prevents a child from exiting at the same time as its parent.
+  This invariant syncrhonizes write access to the `ppid_` by an exiting parent and read access to the `ppid_` by the child. This handles the case where a process is exiting at the same time that one of its children calls `sys_getppid()`. It also prevents a child from exiting at the same time as its parent.
 
 ###### proc::pstate\_
 
-- TODO: specify the synchronization plan when start allowing processes to modify pstate\_
-  are we usign ptable\*lock?
-  How do we guarantee that waitpid does not free a zombie while another CPU is running on the corresponding kernel task stack? Wll, schedule will only add a process to the runq if its status is runnable. Moreover, it is an invariant that if a child is running on a CPU, then it is not on the runq for any other CPU. These two facts combined mean that if a process exits, and hence, sets its status to non-runnable, it won't be scheduled to run again in any cpu. Hence, it is safe for waitpid to delete the resources of a process with status nonrunnable.
+- `proc::pstate_` may be modified only by the corresponding kernel task, except that other contexts may perform an atomic compare-and-swap operation that changes `ps_blocked` state to `ps_runnable`.
+
+  This guarantees that `sys_waitpid` does not free a zombie while another CPU is running on the zombie's kernel task stack. After all, `cpustate::schedule(p)` will only schedule a process to run if its status is `ps_runnable`. Moreover, it is an invariant that an executing process is not on the `runq` for any other CPU. Hence if a process exits, hence setting its status to `ps_nonrunnable` and becoming a zombie, our invariant prevents any other cpu from executing on its kernel stack.
+
+  In the future, allowing different contexts to transition a process' state from `ps_blocked` to something other than `ps_runnable` may affect this invariant's correctness.
 
 ###### proc::sleeping\_
 
-- TODO: are we using ptable_lock? Is there a better strategy?
-- TODO: probably make a variant that only SYSCALL_SLEEP can set this variable or something
+- Reading or writing to `p->sleeping_` required the `ptable_lock`.
+- `p->sleeping_` can be modified only by the kernel task for `p`.
 
 ###### proc::got_interrupted\_
 
