@@ -409,7 +409,6 @@ int proc::syscall_fork(regstate* regs) {
         }
 
         // allocate process and assign found pid to it
-        // TODO"move to right after findinig pid
         p = knew<proc>();
         if (!p) {
             return E_NOMEM;
