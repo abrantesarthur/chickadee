@@ -31,9 +31,13 @@ Leave your name out of this file. Put collaboration notes and credit in
 
 - `p->sleeping_` can be modified only by the kernel task for `p`.
 
-###### proc::got_interrupted\_
+  Because `p->sleeping_` is declared as `std::atomic<bool>`, if `p` writes to it at the same time that another kernel task reads its value, the behavior is well-defined.
 
-- TODO: only the child may set interrupted\_ to true and only the process may set it to false.
+###### proc::interrupted\_
+
+- only a process `p` exiting child may set `p->interrupted_` to true.
+
+  This prevents a process from being interrupted for a reason other than a child is exiting or the timer interrupt fired up. In the future, if we want to support other types of interruptions, this invariant should be updated.
 
 ###### process hiearchy
 
