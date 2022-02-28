@@ -29,7 +29,6 @@ Leave your name out of this file. Put collaboration notes and credit in
 
 ###### proc::sleeping\_
 
-- Reading or writing to `p->sleeping_` requires the `ptable_lock`.
 - `p->sleeping_` can be modified only by the kernel task for `p`.
 
 ###### proc::got_interrupted\_

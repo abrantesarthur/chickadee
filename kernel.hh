@@ -39,7 +39,7 @@ struct __attribute__((aligned(4096))) proc {
     yieldstate* yields_ = nullptr;             // Process's current yield state
     std::atomic<int> pstate_ = ps_blank;       // Process state
     int exit_status_;                          // Process exit status
-    bool sleeping_ = false;                    // Whether the process is sleeping
+    std::atomic<bool> sleeping_ = false;       // Whether the process is sleeping
     std::atomic<bool> interrupted_ = false;    // The process was interrupted while sleeping
     unsigned long resume_count_ = 0;           // How many times the process has resumed
 
