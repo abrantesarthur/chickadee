@@ -22,7 +22,6 @@ inline waiter::~waiter() {
 inline void waiter::prepare(wait_queue& wq) {
     spinlock_guard g(wq.lock_);
     p_ = current();
-    // TODO: synchronize access to state_
     p_->pstate_ = proc::ps_blocked;
     wq_ = &wq;
     // add this waiter (i.e., the process) to wait queue
@@ -33,7 +32,6 @@ inline void waiter::prepare(wait_queue& wq) {
 //      yield if the current process is blocked and wake it otherwise.
 inline void waiter::block() {
     assert(p_ == current());
-    // TODO: synchronize access to pstate_
     if(p_->pstate_ == proc::ps_blocked) {
         p_->yield();
     }

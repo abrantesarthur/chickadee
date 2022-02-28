@@ -234,7 +234,6 @@ int proc::load_segment(const elf_program& ph, proc_loader& ld) {
 // proc::wake()
 //      unblock this process and schedule it on its home CPU
 void proc::wake() {
-    // TODO: reason about synchronization here. 
     // TODO: proceses should remember their home cpu. Is id_ % ncpu enough?
     int s = proc::ps_blocked;
     if(pstate_.compare_exchange_strong(s, proc::ps_runnable)) {

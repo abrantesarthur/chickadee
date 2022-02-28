@@ -9,7 +9,6 @@
 
 /**
  * TODO 1: add cpuindex_ to proc struct
- * TODO 2: create a q of processes waiting to be woken up
  */
 
 // kernel.cc
@@ -360,7 +359,6 @@ int proc::syscall_nasty() {
 
 // proc::syscall_alloc(regs)
 //    Handle allocation system calls.
-// TODO: make sure this is correct
 int proc::syscall_alloc(uintptr_t addr, uintptr_t sz) {
     if (addr >= VA_LOWEND || addr & 0xFFF) {
         return -1;
@@ -490,7 +488,6 @@ int proc::syscall_fork(regstate* regs) {
 //      initiates process' exiting by making it non-runnable,
 //      reparenting its children, freeing its user-accessible memory,
 //      and waking up its parent so it can finish the exit process.
-// TODO: add syscall interrupts
 void proc::syscall_exit(int status) {
     {
         // synchronize access to pstate_ and to ppid_
