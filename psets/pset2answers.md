@@ -23,7 +23,7 @@ Leave your name out of this file. Put collaboration notes and credit in
 
 - `proc::pstate_` may be modified only by the corresponding kernel task, except that other contexts may perform an atomic compare-and-swap operation that changes `ps_blocked` state to `ps_runnable`.
 
-  This guarantees that `sys_waitpid` does not free a zombie while another CPU is running on the zombie's kernel task stack. After all, `cpustate::schedule(p)` will only schedule a process to run if its status is `ps_runnable`. Moreover, it is an invariant that an executing process is not on the `runq` for any other CPU. Hence if a process exits, hence setting its status to `ps_nonrunnable` and becoming a zombie, our invariant prevents any other cpu from executing on its kernel stack.
+  This guarantees that `sys_waitpid` does not free a zombie while another CPU is running on the zombie's kernel task stack. After all, `cpustate::schedule(p)` will only schedule `p` to run if its status is `ps_runnable`. Moreover, it is an invariant that an executing process is not on the `runq` for any other CPU. Hence if a process exits, hence setting its status to `ps_nonrunnable` and becoming a zombie, our invariant prevents any other cpu from executing on its kernel stack (because the zombie process is executing on a single cpu and its status will never change again).
 
   In the future, allowing different contexts to transition a process' state from `ps_blocked` to something other than `ps_runnable` may affect this invariant's correctness.
 
@@ -35,9 +35,9 @@ Leave your name out of this file. Put collaboration notes and credit in
 
 ###### proc::interrupted\_
 
-- only a process `p` exiting child may set `p->interrupted_` to true.
+- only a process `p` exiting child may set `p->interrupted_` to `true`.
 
-  This prevents a process from being interrupted for a reason other than a child is exiting or the timer interrupt fired up. In the future, if we want to support other types of interruptions, this invariant should be updated.
+  This prevents a sleeping process from being interrupted for a reason other than a child is exiting (thus setting `interrupted_` to `true`) or the timer interrupt fired up. In the future, if we want to support other types of interrupts, this invariant should be updated.
 
 ###### process hiearchy
 
