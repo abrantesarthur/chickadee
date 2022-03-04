@@ -34,8 +34,11 @@ inline void waiter::block() {
     assert(p_ == current());
     if(p_->pstate_ == proc::ps_blocked) {
         p_->yield();
-    }
-    // we will reach this only if process is not blocked
+    } // else {
+        /* p_->pstate_ was set to ps_runnable by a call to waitq.wakeall()
+         * that snuck in before a call to w.block()
+         */
+    // }
     clear();
 }
 

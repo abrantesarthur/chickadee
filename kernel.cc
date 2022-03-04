@@ -279,7 +279,11 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
                 return E_INVAL;
             }
             // the console is at physical address CONSOLE_ADDR
-            return vmiter(this, addr).try_map(CONSOLE_ADDR, PTE_PWU);
+            int r = vmiter(this, addr).try_map(CONSOLE_ADDR, PTE_PWU);
+            if(r < 0) {
+                return E_NOMEM;
+            }
+            return r;
         }
 
         case SYSCALL_FORK:
@@ -388,6 +392,7 @@ int proc::syscall_alloc(uintptr_t addr, uintptr_t sz) {
 // TODO: use goto statements for cleaner deallocation (see lecture 6)
 // TODO: should I use page_lock to protect memory allocation data
 // TODO: consider enabling interrutps before copying memory
+// TODO: implement copy-on-write (see lecture 09)
 int proc::syscall_fork(regstate* regs) {
     proc* p;
     pid_t child_pid;
