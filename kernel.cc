@@ -628,8 +628,20 @@ uintptr_t proc::syscall_read(regstate* regs) {
 
     uintptr_t addr = regs->reg_rsi;
     size_t sz = regs->reg_rdx;
+    // read no characters
+    if(!sz) return 0;
 
-    // Your code here!
+
+    // check for integer overflow
+    if(addr + sz < addr || sz == SIZE_MAX) {
+        return E_FAULT;
+    }
+
+    // check for present, writable, and user-accessible memory
+    if(!(vmiter(this, addr).range_perm(sz, PTE_PWU))) {
+        return E_FAULT;
+    }
+
     // * Read from open file `fd` (reg_rdi), rather than `keyboardstate`.
     // * Validate the read buffer.
     auto& kbd = keyboardstate::get();
@@ -645,7 +657,7 @@ uintptr_t proc::syscall_read(regstate* regs) {
     // (special case: do not block if the user wants to read 0 bytes)
     waiter w;
     w.block_until(kbd.wq_, [&] () {
-        return sz == 0 || kbd.eol_ > 0;
+        return kbd.eol_ > 0;
     }, kbd.lock_, irqs);
 
     // read that line or lines
@@ -675,8 +687,19 @@ uintptr_t proc::syscall_write(regstate* regs) {
 
     uintptr_t addr = regs->reg_rsi;
     size_t sz = regs->reg_rdx;
+    // read no characters;
+    if(!sz) return 0;
 
-    // Your code here!
+    // check for integer overflow
+    if(addr + sz < addr || sz == SIZE_MAX) {
+        return E_FAULT;
+    }
+
+    // check for present and user-accessible memory
+    if(!(vmiter(this, addr).range_perm(sz, PTE_P | PTE_U))) {
+        return E_FAULT;
+    }
+    
     // * Write to open file `fd` (reg_rdi), rather than `consolestate`.
     // * Validate the write buffer.
     auto& csl = consolestate::get();
