@@ -174,6 +174,8 @@ void keyboardstate::handle_interrupt() {
             break;
         }
     }
+    // wake processes waiting for a keyboard interrupt
+    wq_.wake_all();
 
     lock_.unlock(irqs);
     lapicstate::get().ack();

@@ -37,7 +37,9 @@
         "__availability": "cpp",
         "system_error": "cpp",
         "__node_handle": "cpp",
-        "tuple": "cpp"
+        "tuple": "cpp",
+        "__mutex_base": "cpp",
+        "mutex": "cpp"
     },
     "C_Cpp.errorSquiggles": "Disabled"
 }

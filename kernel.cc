@@ -641,13 +641,12 @@ uintptr_t proc::syscall_read(regstate* regs) {
         kbd.state_ = kbd.input;
     }
 
-    // yield until a line is available
+    // block until a line is available
     // (special case: do not block if the user wants to read 0 bytes)
-    while (sz != 0 && kbd.eol_ == 0) {
-        kbd.lock_.unlock(irqs);
-        yield();
-        irqs = kbd.lock_.lock();
-    }
+    waiter w;
+    w.block_until(kbd.wq_, [&] () {
+        return sz == 0 || kbd.eol_ > 0;
+    }, kbd.lock_, irqs);
 
     // read that line or lines
     size_t n = 0;
