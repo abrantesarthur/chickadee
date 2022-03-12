@@ -3,8 +3,9 @@
 #include "k-vmiter.hh"
 #include "k-devices.hh"
 
-proc* ptable[NPROC];            // array of process descriptor pointers
-spinlock ptable_lock;           // protects `ptable`
+proc* ptable[NPROC];                        // array of process descriptor pointers
+spinlock ptable_lock;                       // protects `ptable`
+keyboard_console_vnode *kbd_cons_vnode;     // global keyboard/console vnode
 
 // proc::proc()
 //    The constructor initializes the `proc` to empty.
@@ -238,6 +239,26 @@ void proc::wake() {
     int s = proc::ps_blocked;
     if(pstate_.compare_exchange_strong(s, proc::ps_runnable)) {
         cpus[id_ % ncpu].enqueue(this);
+    }
+}
+
+// proc::init_fd_table()
+//      initializes the process' file descriptor table.
+//      sets first three entries to be stdin, stdou, and stderr respectively
+void proc::init_fd_table() {
+    if(!kbd_cons_vnode) {
+        kbd_cons_vnode = knew<keyboard_console_vnode>();
+        assert(kbd_cons_vnode);
+    }
+    for(int fd = 0; fd < 3; ++fd) {
+        fd_table_[fd] = knew<file_descriptor>();
+        assert(fd_table_[fd]);
+        fd_table_[fd]->readable_ = true;
+        fd_table_[fd]->writable_ = true;
+        ++fd_table_[fd]->ref_;
+        fd_table_[fd]->type_ = file_descriptor::kbd_cons;
+        fd_table_[fd]->vnode_ = kbd_cons_vnode;
+        ++kbd_cons_vnode->ref_;
     }
 }
 

@@ -99,6 +99,9 @@ void boot_process_start(pid_t pid, const char* name) {
     assert(init_process);
     p->ppid_ = init_process->id_;
 
+    // initiazlie file descriptor table
+    p->init_fd_table();
+
     // add boot process to init process children list
     init_process->children_.push_front(p);
 
@@ -314,6 +317,14 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
             return syscall_waitpid(pid, status, options);
         }
 
+        case SYSCALL_DUP2: {
+            return syscall_dup2(regs->reg_rdi, regs->reg_rsi);
+        }
+
+        case SYSCALL_CLOSE: {
+            return syscall_close(regs->reg_rdi);
+        }
+
         case SYSCALL_EXIT: {
             int status = regs->reg_rdi;
             syscall_exit(status);
@@ -390,101 +401,108 @@ int proc::syscall_alloc(uintptr_t addr, uintptr_t sz) {
 // proc::syscall_fork(regs)
 //    Handle fork system call.
 // TODO: use goto statements for cleaner deallocation (see lecture 6)
-// TODO: should I use page_lock to protect memory allocation data
-// TODO: consider enabling interrutps before copying memory
 // TODO: implement copy-on-write (see lecture 09)
 int proc::syscall_fork(regstate* regs) {
+    // protect access to ptable
+    spinlock_guard guard(ptable_lock);
+
     proc* p;
     pid_t child_pid;
-    {
-        // protect access to ptable
-        spinlock_guard guard(ptable_lock);
-        pid_t i;
-        // look for available pid
-        for (i = 1; i < NPROC; ++i) {
-            if (!ptable[i]) {
-                child_pid = i;
-                break;
-            }
-        }
-
-        // return error if out of pids
-        if (i == NPROC) {
-            return E_NOMEM;
-        }
-
-        // allocate process and assign found pid to it
-        p = knew<proc>();
-        if (!p) {
-            return E_NOMEM;
-        }
-        ptable[child_pid] = p;
-
-        // allocate pagetable for the process
-        x86_64_pagetable* pagetable = kalloc_pagetable();
-        if (!pagetable) {
-            kfree(p);
-            ptable[child_pid] = nullptr;
-            return E_NOMEM;
-        }
-
-        // initialize process
-        p->init_user(child_pid, pagetable);
-
-        // copy the parent process' user-accessible memory
-        for (vmiter it(this, 0); it.low(); it.next()) {
-            if (it.user() && it.pa() != CONSOLE_ADDR) {
-                // allocate new page
-                void* new_page = kalloc(PAGESIZE);
-
-                // map page's physical address to a virtual address
-                if (!new_page || vmiter(p, it.va()).try_map(new_page, it.perm()) != 0) {
-                    // remove proces from ptable
-                    ptable[child_pid] = nullptr;
-                    // free most recently allocated memory page
-                    kfree(new_page);
-                    // free memory pages allocated in previous iterations
-                    kfree_mem(p);
-                    // free pagetable
-                    kfree_pagetable(pagetable);
-                    // free process page (struct proc and kernel stack)
-                    kfree(p);
-                    return E_NOMEM;
-                }
-
-                // copy parent's page
-                memcpy(new_page, it.kptr(), PAGESIZE);
-            } else if (it.pa() == CONSOLE_ADDR) {
-                if(vmiter(p, it.va()).try_map(CONSOLE_ADDR, it.perm()) < 0) {
-                    // remove proces from ptable
-                    ptable[child_pid] = nullptr;
-                    // free memory pages allocated in previous iterations
-                    kfree_mem(p);
-                    // free pagetable
-                    kfree_pagetable(pagetable);
-                    // free process page (struct proc and kernel stack)
-                    kfree(p);
-                    return E_NOMEM;
-                }
-            }
-        }
-
-        // copy parent's register state
-        memcpy(reinterpret_cast<void*>(p->regs_), reinterpret_cast<void*>(regs), sizeof(regstate));
-
-        // set %rax so 0 gets returned to child
-        p->regs_->reg_rax = 0;
-
-        // set child's ppid
-        p->ppid_ = this->id_;
         
-        // add child to this process' children
-        children_.push_front(p);
-
-        // add child to a cpu
-        cpus[child_pid % ncpu].enqueue(p);
+    pid_t i;
+    // look for available pid
+    for (i = 1; i < NPROC; ++i) {
+        if (!ptable[i]) {
+            child_pid = i;
+            break;
+        }
     }
 
+    // return error if out of pids
+    if (i == NPROC) {
+        return E_NOMEM;
+    }
+
+    // allocate process and assign found pid to it
+    p = knew<proc>();
+    if (!p) {
+        return E_NOMEM;
+    }
+    ptable[child_pid] = p;
+
+    // allocate pagetable for the process
+    x86_64_pagetable* pagetable = kalloc_pagetable();
+    if (!pagetable) {
+        kfree(p);
+        ptable[child_pid] = nullptr;
+        return E_NOMEM;
+    }
+
+    // initialize process
+    p->init_user(child_pid, pagetable);
+
+    // copy the parent process' user-accessible memory
+    for (vmiter it(this, 0); it.low(); it.next()) {
+        if (it.user() && it.pa() != CONSOLE_ADDR) {
+            // allocate new page
+            void* new_page = kalloc(PAGESIZE);
+
+            // map page's physical address to a virtual address
+            if (!new_page || vmiter(p, it.va()).try_map(new_page, it.perm()) != 0) {
+                // remove proces from ptable
+                ptable[child_pid] = nullptr;
+                // free most recently allocated memory page
+                kfree(new_page);
+                // free memory pages allocated in previous iterations
+                kfree_mem(p);
+                // free pagetable
+                kfree_pagetable(pagetable);
+                // free process page (struct proc and kernel stack)
+                kfree(p);
+                return E_NOMEM;
+            }
+
+            // copy parent's page
+            memcpy(new_page, it.kptr(), PAGESIZE);
+        } else if (it.pa() == CONSOLE_ADDR) {
+            if(vmiter(p, it.va()).try_map(CONSOLE_ADDR, it.perm()) < 0) {
+                // remove proces from ptable
+                ptable[child_pid] = nullptr;
+                // free memory pages allocated in previous iterations
+                kfree_mem(p);
+                // free pagetable
+                kfree_pagetable(pagetable);
+                // free process page (struct proc and kernel stack)
+                kfree(p);
+                return E_NOMEM;
+            }
+        }
+    }
+
+    // copy parent's file descriptors
+    for(int fd = 0; fd < FDS_COUNT; ++fd) {
+        if(fd_table_[fd]) {
+            spinlock_guard(fd_table_[fd]->lock_);
+            p->fd_table_[fd] = fd_table_[fd];
+            ++fd_table_[fd]->ref_;
+        }
+    }
+
+    // copy parent's register state
+    memcpy(reinterpret_cast<void*>(p->regs_), reinterpret_cast<void*>(regs), sizeof(regstate));
+
+    // set %rax so 0 gets returned to child
+    p->regs_->reg_rax = 0;
+
+    // set child's ppid
+    p->ppid_ = this->id_;
+    
+    // add child to this process' children
+    children_.push_front(p);
+
+    // add child to a cpu
+    cpus[child_pid % ncpu].enqueue(p);
+    
     return child_pid;
 }
 
@@ -626,6 +644,7 @@ uintptr_t proc::syscall_read(regstate* regs) {
     // This is a slow system call, so allow interrupts by default
     sti();
 
+    int fd = regs->reg_rdi;
     uintptr_t addr = regs->reg_rsi;
     size_t sz = regs->reg_rdx;
     // read no characters
@@ -637,54 +656,24 @@ uintptr_t proc::syscall_read(regstate* regs) {
         return E_FAULT;
     }
 
-    // check for present, writable, and user-accessible memory
+    // test that file descriptor is present and readable
+    if(fd < 0 || !fd_table_[fd] || !fd_table_[fd]->readable_) {
+        return E_BADF;
+    }
+
+    // test that memory range is present, writable, and user-accessible
     if(!(vmiter(this, addr).range_perm(sz, PTE_PWU))) {
         return E_FAULT;
     }
 
-    // * Read from open file `fd` (reg_rdi), rather than `keyboardstate`.
-    // * Validate the read buffer.
-    auto& kbd = keyboardstate::get();
-    auto irqs = kbd.lock_.lock();
-
-    // mark that we are now reading from the keyboard
-    // (so `q` should not power off)
-    if (kbd.state_ == kbd.boot) {
-        kbd.state_ = kbd.input;
-    }
-
-    // block until a line is available
-    // (special case: do not block if the user wants to read 0 bytes)
-    waiter w;
-    w.block_until(kbd.wq_, [&] () {
-        return kbd.eol_ > 0;
-    }, kbd.lock_, irqs);
-
-    // read that line or lines
-    size_t n = 0;
-    while (kbd.eol_ != 0 && n < sz) {
-        if (kbd.buf_[kbd.pos_] == 0x04) {
-            // Ctrl-D means EOF
-            if (n == 0) {
-                kbd.consume(1);
-            }
-            break;
-        } else {
-            *reinterpret_cast<char*>(addr) = kbd.buf_[kbd.pos_];
-            ++addr;
-            ++n;
-            kbd.consume(1);
-        }
-    }
-
-    kbd.lock_.unlock(irqs);
-    return n;
+    return fd_table_[fd]->vnode_->read(fd_table_[fd], addr, sz);
 }
 
 uintptr_t proc::syscall_write(regstate* regs) {
     // This is a slow system call, so allow interrupts by default
     sti();
 
+    int fd = regs->reg_rdi;
     uintptr_t addr = regs->reg_rsi;
     size_t sz = regs->reg_rdx;
     // read no characters;
@@ -695,23 +684,17 @@ uintptr_t proc::syscall_write(regstate* regs) {
         return E_FAULT;
     }
 
+    // test that file descriptor is present and writable
+    if(fd < 0 || !fd_table_[fd] || !fd_table_[fd]->writable_) {
+        return E_BADF;
+    }
+
     // check for present and user-accessible memory
     if(!(vmiter(this, addr).range_perm(sz, PTE_P | PTE_U))) {
         return E_FAULT;
     }
     
-    // * Write to open file `fd` (reg_rdi), rather than `consolestate`.
-    // * Validate the write buffer.
-    auto& csl = consolestate::get();
-    spinlock_guard guard(csl.lock_);
-    size_t n = 0;
-    while (n < sz) {
-        int ch = *reinterpret_cast<const char*>(addr);
-        ++addr;
-        ++n;
-        console_printf(0x0F00, "%c", ch);
-    }
-    return n;
+    return fd_table_[fd]->vnode_->write(fd_table_[fd], addr, sz);
 }
 
 uintptr_t proc::syscall_readdiskfile(regstate* regs) {
@@ -765,6 +748,63 @@ uintptr_t proc::syscall_readdiskfile(regstate* regs) {
     return nread;
 }
 
+int proc::syscall_dup2(int fd1, int fd2) {
+    if(fd1 == fd2) return fd2;
+
+    // test that file descriptors are valid
+    if(fd1 < 0 || fd1 >= FDS_COUNT || !fd_table_[fd1]) {
+        return E_BADF;
+    }
+    if(fd2 < 0 || fd2 >= FDS_COUNT) {
+        return E_BADF;
+    }
+
+    // close fd2 if present
+    if(fd_table_[fd2]) {
+        syscall_close(fd2);
+    }
+    
+    // copy fd1 into fd2 and increase reference count
+    fd_table_[fd2] = fd_table_[fd1];
+    spinlock_guard(fd_table_[fd2]->lock_);
+    ++fd_table_[fd2]->ref_;
+    return fd2;
+}
+
+int proc::syscall_close(int fd) {
+    // test that file descriptor is valid
+    if(fd < 0 || fd >= FDS_COUNT) {
+        return E_BADF;
+    }
+    file_descriptor *f = fd_table_[fd];
+    if(!f) {
+        return E_BADF;
+    }
+
+    // clear file descriptor table entry
+    fd_table_[fd] = nullptr;
+
+    // protect access to file descriptor table
+    spinlock_guard(f->lock_);
+    
+    // free file descriptor if not referenced by any process
+    --f->ref_;
+    if(!f->ref_) {
+        // TODO: close pipe and abstract away to different function
+
+        // free vnode if not referenced by any file descriptor
+        spinlock_guard g(f->vnode_->lock_);
+        --f->vnode_->ref_;
+        if(!f->vnode_->ref_) {
+            kfree(f->vnode_);
+        }
+
+        // free file descriptor
+        kfree(f);
+    }
+
+    return 0;
+}
 
 
 // memshow()

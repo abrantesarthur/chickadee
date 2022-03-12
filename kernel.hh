@@ -6,6 +6,7 @@
 #include "k-lock.hh"
 #include "k-memrange.hh"
 #include "k-waitstruct.hh"
+#include "k-vfs.hh"
 #if CHICKADEE_PROCESS
 #error "kernel.hh should not be used by process code."
 #endif
@@ -15,6 +16,9 @@ struct proc_loader;
 struct elf_program;
 #define PROC_RUNNABLE 1
 #define PROC_CANARY 0xabcdef
+#define FDS_COUNT 32
+
+// TODO: add bbuffer_wq and keyboardstate_wq;
 
 
 // kernel.hh
@@ -55,6 +59,7 @@ struct __attribute__((aligned(4096))) proc {
 
     list<proc, &proc::children_links_> children_;
 
+    struct file_descriptor* fd_table_[FDS_COUNT] = {nullptr};
 
     proc();
     NO_COPY_OR_ASSIGN(proc);
@@ -64,6 +69,10 @@ struct __attribute__((aligned(4096))) proc {
 
     void init_user(pid_t pid, x86_64_pagetable* pt);
     void init_kernel(pid_t pid, void (*f)());
+    // TODO: implement
+    void init_fd_table();
+    
+    int fd_alloc();
 
     static int load(proc_loader& ld);
 
@@ -90,6 +99,8 @@ struct __attribute__((aligned(4096))) proc {
     uintptr_t syscall_read(regstate* reg);
     uintptr_t syscall_write(regstate* reg);
     uintptr_t syscall_readdiskfile(regstate* reg);
+    int syscall_dup2(int fd1, int fd2);
+    int syscall_close(int fd);
 
     void wake();
 
@@ -106,6 +117,7 @@ public:
 #define NPROC 16
 extern proc* ptable[NPROC];
 extern spinlock ptable_lock;
+extern struct keyboard_console_vnode* kbd_cons_vnode;
 #define PROCSTACK_SIZE 4096UL
 
 
@@ -351,6 +363,11 @@ void kfree_mem(proc* p);
 // kfree_pagetable(pagetable)
 //    Free the 'pagetable'
 void kfree_pagetable(x86_64_pagetable* pagetable);
+
+// TODO: implement
+// kfree_fd_table(p)
+//      free the file descriptor table of process 'p'
+void kfree_fd_table(proc* p);
 
 
 // operator new, operator delete
