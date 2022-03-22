@@ -325,6 +325,10 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
             return syscall_close(regs->reg_rdi);
         }
 
+        case SYSCALL_PIPE: {
+            return syscall_pipe();
+        }
+
         case SYSCALL_EXIT: {
             int status = regs->reg_rdi;
             syscall_exit(status);
@@ -511,9 +515,15 @@ int proc::syscall_fork(regstate* regs) {
 //      reparenting its children, freeing its user-accessible memory,
 //      and waking up its parent so it can finish the exit process.
 void proc::syscall_exit(int status) {
+
     {
         // synchronize access to pstate_ and to ppid_
         spinlock_guard guard(ptable_lock);
+
+        //close file descriptor table
+        for(int fd = 0; fd < FDS_COUNT; fd++) {
+            syscall_close(fd);
+        }
 
         // reparent process' children
         proc* child = children_.pop_front();
@@ -532,6 +542,7 @@ void proc::syscall_exit(int status) {
          // free process' user-acessible memory
         kfree_mem(this);
 
+
         // interrupt parent if it's sleeping
         proc* parent = ptable[ppid_];
         if(parent->sleeping_) {
@@ -540,7 +551,10 @@ void proc::syscall_exit(int status) {
         
         // wake parent if it's waiting for child to exit
         wait_child_exit_wq.wake_proc(parent);
+
+
     }
+
     yield_noreturn();
 }
 
@@ -650,7 +664,6 @@ uintptr_t proc::syscall_read(regstate* regs) {
     // read no characters
     if(!sz) return 0;
 
-
     // check for integer overflow
     if(addr + sz < addr || sz == SIZE_MAX) {
         return E_FAULT;
@@ -666,6 +679,7 @@ uintptr_t proc::syscall_read(regstate* regs) {
         return E_FAULT;
     }
 
+    // read 'sz' bytes into 'addr' and from file descriptor
     return fd_table_[fd]->vnode_->read(fd_table_[fd], addr, sz);
 }
 
@@ -790,7 +804,10 @@ int proc::syscall_close(int fd) {
     // free file descriptor if not referenced by any process
     --f->ref_;
     if(!f->ref_) {
-        // TODO: close pipe and abstract away to different function
+        // if file is a pipe, try closing it
+        if(f->type_ == file_descriptor::fd_pipe) {
+            try_close_pipe(f);
+        }
 
         // free vnode if not referenced by any file descriptor
         spinlock_guard g(f->vnode_->lock_);
@@ -804,6 +821,84 @@ int proc::syscall_close(int fd) {
     }
 
     return 0;
+}
+
+// try_close_pipe(f)
+//      close pipe and free its resources if possible
+void proc::try_close_pipe(file_descriptor* f) {
+    assert(f->type_ == file_descriptor::fd_pipe);
+    bounded_buffer* b = reinterpret_cast<bounded_buffer*>(f->vnode_->data_);
+    if(f->writable_) {
+        b->write_closed_ = true;
+        b->wq_.wake_all();
+    }
+    if(f->readable_) {
+        b->read_closed_ = true;
+        b->wq_.wake_all();
+    }
+    // free buffer if read and write ends are closed
+    if(b->write_closed_ && b->read_closed_) {
+        kfree(f->vnode_->data_);
+        f->vnode_->data_ = nullptr;
+    }
+}
+
+uintptr_t proc::syscall_pipe() {
+    // allocate read and write ends
+    int rfd = fd_alloc(true, false, file_descriptor::fd_pipe);
+    if(rfd < 0) {
+        return rfd;
+    }
+    int wfd = fd_alloc(false, true, file_descriptor::fd_pipe);
+    if(wfd < 0) {
+        fd_table_[rfd] = nullptr;
+        kfree(reinterpret_cast<void*>(fd_table_[rfd]));
+        return wfd;
+    }
+
+    // allocate vnode and its bounded buffer
+    pipe_vnode* vnode_ptr = reinterpret_cast<pipe_vnode*>(knew<pipe_vnode>());
+    bounded_buffer* bbuffer_ptr = reinterpret_cast<bounded_buffer*>(knew<bounded_buffer>());
+    if(!vnode_ptr || !bbuffer_ptr) {
+        kfree(reinterpret_cast<void*>(fd_table_[rfd]));
+        fd_table_[rfd] = nullptr;
+        kfree(reinterpret_cast<void*>(fd_table_[wfd]));
+        fd_table_[wfd] = nullptr;
+        if(vnode_ptr) kfree(reinterpret_cast<void*>(vnode_ptr));
+        if(bbuffer_ptr) kfree(reinterpret_cast<void*>(bbuffer_ptr));
+        return E_NOMEM;
+    }
+
+    // point file descriptors to vnode
+    vnode_ptr->data_ = bbuffer_ptr;
+    vnode_ptr->ref_ = 2;
+    fd_table_[rfd]->vnode_ = vnode_ptr;
+    fd_table_[wfd]->vnode_ = vnode_ptr;
+    
+    uintptr_t wfd_cast = wfd;
+    return (wfd_cast << 32) | rfd;
+}
+
+// fd_alloc()
+//     allocate a file descriptor if there is an available entry in the fd table.
+//     set its readable_, writable_, and type_ arguments accordingly.
+//     return fd on success and error code on failure
+int proc::fd_alloc(bool readable, bool writable, int type) {
+    for(int fd = 3; fd < FDS_COUNT; ++fd) {
+        if(!fd_table_[fd]) {
+            file_descriptor* fd_ptr = reinterpret_cast<file_descriptor*>(knew<file_descriptor>());
+            if(!fd_ptr) {
+                return E_NOMEM;
+            }
+            fd_ptr->ref_++;
+            fd_ptr->readable_ = readable;
+            fd_ptr->writable_ = writable;
+            fd_ptr->type_ = type;
+            fd_table_[fd] = fd_ptr;
+            return fd;
+        }
+    }
+    return E_MFILE;
 }
 
 

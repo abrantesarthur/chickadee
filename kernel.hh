@@ -18,7 +18,7 @@ struct elf_program;
 #define PROC_CANARY 0xabcdef
 #define FDS_COUNT 32
 
-// TODO: add bbuffer_wq and keyboardstate_wq;
+// TODO: add keyboardstate_wq;
 
 
 // kernel.hh
@@ -69,10 +69,9 @@ struct __attribute__((aligned(4096))) proc {
 
     void init_user(pid_t pid, x86_64_pagetable* pt);
     void init_kernel(pid_t pid, void (*f)());
-    // TODO: implement
     void init_fd_table();
     
-    int fd_alloc();
+    int fd_alloc(bool readable, bool writable, int type);
 
     static int load(proc_loader& ld);
 
@@ -101,6 +100,8 @@ struct __attribute__((aligned(4096))) proc {
     uintptr_t syscall_readdiskfile(regstate* reg);
     int syscall_dup2(int fd1, int fd2);
     int syscall_close(int fd);
+    uintptr_t syscall_pipe();
+    void try_close_pipe(file_descriptor* f);
 
     void wake();
 

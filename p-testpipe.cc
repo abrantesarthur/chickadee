@@ -186,11 +186,10 @@ void process_main() {
 
     x = sys_msleep(100);
     assert_eq(x, 0);
-
     x = sys_close(pfd[1]);
     assert_eq(x, 0);
 
-    n = sys_read(pfd[0], buf, 100);
+    n = sys_read(pfd[0], buf, 123);
     assert_eq(n, 0);
 
 

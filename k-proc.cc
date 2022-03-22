@@ -256,7 +256,7 @@ void proc::init_fd_table() {
         fd_table_[fd]->readable_ = true;
         fd_table_[fd]->writable_ = true;
         ++fd_table_[fd]->ref_;
-        fd_table_[fd]->type_ = file_descriptor::kbd_cons;
+        fd_table_[fd]->type_ = file_descriptor::fd_kbd_cons;
         fd_table_[fd]->vnode_ = kbd_cons_vnode;
         ++kbd_cons_vnode->ref_;
     }
