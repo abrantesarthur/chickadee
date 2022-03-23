@@ -249,6 +249,8 @@ void consolestate::cursor(bool show) {
 
 // memfile functions
 
+spinlock initfs_lock;
+
 // memfile::initfs_lookup(name, namelen, create)
 //    Search `memfile::initfs` for a file named `name`. Return the
 //    index of that `memfile` if found; this will be >= 0 and <
@@ -256,6 +258,7 @@ void consolestate::cursor(bool show) {
 //    attempt to create and initialize a new file and return its
 //    index. Return an error code on failure.
 int memfile::initfs_lookup(const char* name, bool create) {
+    assert(initfs_lock.is_locked());
     memfile* empty = nullptr;
     size_t namelen = min(strlen(name), size_t(namesize) - 1);
 

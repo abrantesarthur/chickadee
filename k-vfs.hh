@@ -2,7 +2,7 @@
 #define CHICKADEE_K_VFS_HH
 #include "kernel.hh"
 
-// TODO: include initfs_lock
+extern spinlock initfs_lock;
 
 struct vnode;
 struct pipe_vnode;

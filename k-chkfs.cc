@@ -97,7 +97,7 @@ bool bcentry::load(irqstate& irqs, bcentry_clean_function cleaner) {
 
             sata_disk->read(buf_, chkfs::blocksize,
                             bn_ * chkfs::blocksize);
-
+            
             irqs = lock_.lock();
             estate_ = es_clean;
             if (cleaner) {

@@ -132,22 +132,28 @@ void kfree(void* ptr) {
 }
 
 // kfree_mem(p)
-//      Free the user-accessible memory of process 'p'
-void kfree_mem(proc* p) {
-    // assumes that process 'p' is no longer in the ptable
-    // to avoid synchronization conflicts with memviewer
-
-    // free user-accessible memory
-    for(vmiter it(p, 0); it.low(); it.next()) {
+//      Free the user-accessible memory of pagetable 'pt'
+void kfree_mem(x86_64_pagetable* pt) {
+    for(vmiter it(pt, 0); it.low(); it.next()) {
         if(it.user() && it.pa() != CONSOLE_ADDR) {
             it.kfree_page();
         }
     }
 }
 
+// kfree_mem(p)
+//      Free the user-accessible memory of process 'p'
+void kfree_mem(proc* p) {
+    // assumes that process 'p' is no longer in the ptable
+    // to avoid synchronization conflicts with memviewer
+    assert(p->pagetable_);
+    return kfree_mem(p->pagetable_);
+}
+
+
 // kfree_pagetable
 //      Free the 'pagetable'
-void kfree_pagetable( x86_64_pagetable* pagetable) {
+void kfree_pagetable(x86_64_pagetable* pagetable) {
     // assumes that process who owns the pagetable is no longer in the ptable
     // to avoid synchronization conflicts with memviewer
 

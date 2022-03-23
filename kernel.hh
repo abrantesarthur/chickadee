@@ -101,6 +101,7 @@ struct __attribute__((aligned(4096))) proc {
     int syscall_dup2(int fd1, int fd2);
     int syscall_close(int fd);
     uintptr_t syscall_pipe();
+    int syscall_execv(uintptr_t program_name, const char* const* argv, size_t argc);
     void try_close_pipe(file_descriptor* f);
 
     void wake();
@@ -356,6 +357,10 @@ void* kalloc(size_t sz) __attribute__((malloc));
 //    Free a pointer previously returned by `kalloc`. Does nothing if
 //    `ptr == nullptr`.
 void kfree(void* ptr);
+
+// kfree_mem(pt)
+//    Free user-accessible memory of pagetable 'pt'
+void kfree_mem(x86_64_pagetable* pt);
 
 // kfree_mem(p)
 //    Free user-accessible memory of process 'p'

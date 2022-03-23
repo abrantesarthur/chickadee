@@ -85,9 +85,11 @@ void init_process_start() {
 
 void boot_process_start(pid_t pid, const char* name) {
     // look up process image in initfs
+    irqstate irqs = initfs_lock.lock();
     memfile_loader ld(memfile::initfs_lookup(name), kalloc_pagetable());
     assert(ld.memfile_ && ld.pagetable_);
     int r = proc::load(ld);
+    initfs_lock.unlock(irqs);
     assert(r >= 0);
 
     // allocate process, initialize memory
@@ -254,19 +256,6 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
             return 0;
         }
 
-        case SYSCALL_PAGES_ALLOC: {
-            uintptr_t addr = regs->reg_rdi;
-            uintptr_t n = regs->reg_rsi;
-            return syscall_alloc(addr, PAGESIZE * n);
-        }
-
-        case SYSCALL_ALLOC: {
-            uintptr_t addr = regs->reg_rdi;
-            uintptr_t sz = regs->reg_rsi;
-            return syscall_alloc(addr, sz);
-        }
-
-
         case SYSCALL_PAUSE: {
             sti();
             for (uintptr_t delay = 0; delay < 1000000; ++delay) {
@@ -361,6 +350,13 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
             return bufcache::get().sync(drop);
         }
 
+        case SYSCALL_EXECV: {
+            uintptr_t program_name = regs->reg_rdi;
+            const char* const* argv = reinterpret_cast<const char* const*>(regs->reg_rsi);
+            size_t argc = regs->reg_rdx;
+            return syscall_execv(program_name, argv, argc);
+        }
+
         default:
             // no such system call
             log_printf("%d: no such system call %u\n", id_, regs->reg_rax);
@@ -374,32 +370,6 @@ int proc::syscall_nasty() {
         nasty_array[i] = 2;
     }
     return nasty_array[1] + nasty_array[2];
-}
-
-// proc::syscall_alloc(regs)
-//    Handle allocation system calls.
-int proc::syscall_alloc(uintptr_t addr, uintptr_t sz) {
-    if (addr >= VA_LOWEND || addr & 0xFFF) {
-        return -1;
-    }
-    if (sz == 0) {
-        return -1;
-    }
-
-    void* ptr = kalloc(sz);
-    if (!ptr) {
-        return -1;
-    }
-
-    for(uintptr_t va = addr; va < addr + sz; va += PAGESIZE, ptr += PAGESIZE) {
-        if(vmiter(this, va).try_map(ka2pa(ptr), PTE_PWU) < 0) {
-            kfree(ptr);
-            // TODO: unmap memory
-            return -1;
-        }
-    }
-
-    return 0;
 }
 
 // proc::syscall_fork(regs)
@@ -843,42 +813,6 @@ void proc::try_close_pipe(file_descriptor* f) {
     }
 }
 
-uintptr_t proc::syscall_pipe() {
-    // allocate read and write ends
-    int rfd = fd_alloc(true, false, file_descriptor::fd_pipe);
-    if(rfd < 0) {
-        return rfd;
-    }
-    int wfd = fd_alloc(false, true, file_descriptor::fd_pipe);
-    if(wfd < 0) {
-        fd_table_[rfd] = nullptr;
-        kfree(reinterpret_cast<void*>(fd_table_[rfd]));
-        return wfd;
-    }
-
-    // allocate vnode and its bounded buffer
-    pipe_vnode* vnode_ptr = reinterpret_cast<pipe_vnode*>(knew<pipe_vnode>());
-    bounded_buffer* bbuffer_ptr = reinterpret_cast<bounded_buffer*>(knew<bounded_buffer>());
-    if(!vnode_ptr || !bbuffer_ptr) {
-        kfree(reinterpret_cast<void*>(fd_table_[rfd]));
-        fd_table_[rfd] = nullptr;
-        kfree(reinterpret_cast<void*>(fd_table_[wfd]));
-        fd_table_[wfd] = nullptr;
-        if(vnode_ptr) kfree(reinterpret_cast<void*>(vnode_ptr));
-        if(bbuffer_ptr) kfree(reinterpret_cast<void*>(bbuffer_ptr));
-        return E_NOMEM;
-    }
-
-    // point file descriptors to vnode
-    vnode_ptr->data_ = bbuffer_ptr;
-    vnode_ptr->ref_ = 2;
-    fd_table_[rfd]->vnode_ = vnode_ptr;
-    fd_table_[wfd]->vnode_ = vnode_ptr;
-    
-    uintptr_t wfd_cast = wfd;
-    return (wfd_cast << 32) | rfd;
-}
-
 // fd_alloc()
 //     allocate a file descriptor if there is an available entry in the fd table.
 //     set its readable_, writable_, and type_ arguments accordingly.
@@ -899,6 +833,150 @@ int proc::fd_alloc(bool readable, bool writable, int type) {
         }
     }
     return E_MFILE;
+}
+
+uintptr_t proc::syscall_pipe() {
+    // allocate read and write ends
+    int rfd = fd_alloc(true, false, file_descriptor::fd_pipe);
+    if(rfd < 0) {
+        return rfd;
+    }
+    int wfd = fd_alloc(false, true, file_descriptor::fd_pipe);
+    if(wfd < 0) {
+        fd_table_[rfd] = nullptr;
+        kfree(fd_table_[rfd]);
+        return wfd;
+    }
+
+    // allocate vnode and its bounded buffer
+    pipe_vnode* vnode_ptr = reinterpret_cast<pipe_vnode*>(knew<pipe_vnode>());
+    bounded_buffer* bbuffer_ptr = reinterpret_cast<bounded_buffer*>(knew<bounded_buffer>());
+    if(!vnode_ptr || !bbuffer_ptr) {
+        kfree(fd_table_[rfd]);
+        fd_table_[rfd] = nullptr;
+        kfree(fd_table_[wfd]);
+        fd_table_[wfd] = nullptr;
+        kfree(vnode_ptr);
+        kfree(bbuffer_ptr);
+        return E_NOMEM;
+    }
+
+    // point file descriptors to vnode
+    vnode_ptr->data_ = bbuffer_ptr;
+    vnode_ptr->ref_ = 2;
+    fd_table_[rfd]->vnode_ = vnode_ptr;
+    fd_table_[wfd]->vnode_ = vnode_ptr;
+    
+    uintptr_t wfd_cast = wfd;
+    return (wfd_cast << 32) | rfd;
+}
+
+int proc::syscall_execv(uintptr_t program_name, const char* const* argv, size_t argc) {
+    // validate program name
+    for(vmiter it(this, program_name); it.va() < program_name + memfile::namesize; it+= 1) {
+        if(!it.user()) {
+            return E_FAULT;
+        }
+    }
+
+    // validate argc and argv
+    if(argc < 1 ||
+    strcmp(reinterpret_cast<const char*>(program_name), argv[0]) != 0 ||
+    argv[argc] != nullptr) {
+        return E_FAULT;
+    }
+
+    // make sure arguments won't overflow the stack
+    uintptr_t args_sz = 0;
+    for(size_t i = 0; i < argc; ++i) {
+        args_sz += strlen(argv[i]) + 1;
+    }
+    if(args_sz > 4096) {
+        return E_FAULT;
+    }
+
+    // allocate a pagetable
+    x86_64_pagetable *pgtable = kalloc_pagetable();
+    if(!pgtable) {
+        return E_NOMEM;
+    }
+
+    // find the corresponding memfile
+    irqstate irqs = initfs_lock.lock();
+    int mfi = memfile::initfs_lookup(reinterpret_cast<const char*>(program_name), false);
+    if(mfi == E_NOENT || mfi == E_NOSPC || mfi == E_NAMETOOLONG) {
+        initfs_lock.unlock(irqs);
+        kfree_pagetable(pgtable);
+        return E_FAULT;
+    }
+
+    // instantiate a proc_loader with the memfile and pagetable
+    memfile_loader ld(mfi, pgtable);
+    assert(ld.memfile_ && ld.pagetable_);
+
+    // load program into user-level memory
+    int r = proc::load(ld);
+    initfs_lock.unlock(irqs);
+    if(r < 0){
+        kfree_pagetable(pgtable);
+        return r;
+    }
+
+    // map the user level stack at address MEMSIZE_VIRTUAL
+    void* stackpg = kalloc(PAGESIZE);
+    if(!stackpg || vmiter(pgtable, MEMSIZE_VIRTUAL - PAGESIZE).try_map(stackpg, PTE_PWU) < 0) {
+        kfree(stackpg);
+        kfree_pagetable(pgtable);
+        return E_NOMEM;
+    }
+
+    // map the console at address CONSOLE_ADDR
+    if(vmiter(pgtable, CONSOLE_ADDR).try_map(CONSOLE_ADDR, PTE_PWU) < 0) {
+        kfree(stackpg);
+        kfree_pagetable(pgtable);
+        return E_NOMEM;
+    }
+
+    // copy arguments into new stack
+    uintptr_t args_addrs[argc];
+    uintptr_t sz;
+    vmiter it(pgtable, MEMSIZE_VIRTUAL);
+    for(int i = argc - 1; i >= 0; --i) {
+        sz = strlen(argv[i]) + 1;
+        it -= sz;
+        memcpy(it.kptr<char*>(), argv[i], sz);
+        args_addrs[i] = it.va();
+    }
+    it -= sizeof(uintptr_t);
+    memset(it.kptr<unsigned long*>(), 0, sizeof(uintptr_t));
+    for(int i = argc - 1; i>= 0; --i) {
+        it -= sizeof(uintptr_t);
+        *(it.kptr<unsigned long*>()) = args_addrs[i];
+    }
+
+    // TODO: lock ptable
+
+    // save old pagetable
+    x86_64_pagetable *old_pgtable = this->pagetable_;
+
+    // reset this process to have pagetable 'pgtable'
+    init_user(id_, pgtable);
+
+    // set the registers
+    regs_->reg_rbp = MEMSIZE_VIRTUAL;
+    regs_->reg_rsp = it.va();
+    regs_->reg_rip = ld.entry_rip_;
+    regs_->reg_rsi = regs_->reg_rsp;
+    regs_->reg_rdi = argc;
+
+    // switch to new pagetable
+    set_pagetable(pgtable);
+
+    // free old pagetable and user memory
+    kfree_mem(old_pgtable);
+    kfree_pagetable(old_pgtable);
+
+    yield_noreturn();
 }
 
 
@@ -923,7 +1001,6 @@ static void memshow() {
         showing = (showing + 1) % NPROC;
         last_switch = ticks;
     }
-
     spinlock_guard guard(ptable_lock);
 
     int search = 0;

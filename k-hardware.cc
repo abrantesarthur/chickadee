@@ -120,7 +120,9 @@ void process_halt() {
     consolestate::get().cursor(false);
     // decide when to power off
     unsigned long halt_at = 0;
+    auto irqs = initfs_lock.lock();
     int haltidx = memfile::initfs_lookup(".halt");
+    initfs_lock.unlock(irqs);
     if (haltidx >= 0) {
         memfile& mf = memfile::initfs[haltidx];
         char* data = reinterpret_cast<char*>(mf.data_);
