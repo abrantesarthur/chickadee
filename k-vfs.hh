@@ -23,10 +23,10 @@ struct pipe_vnode : public vnode {
     uintptr_t write(file_descriptor* f, uintptr_t addr, size_t sz) override;
 };
 
-// struct memfile_vnode : public vnode {
-//     uintptr_t read(file_descriptor* f, uintptr_t addr, size_t sz) override;
-//     uintptr_t write(file_descriptor* f, uintptr_t addr, size_t sz) override;
-// };
+struct memfile_vnode : public vnode {
+    uintptr_t read(file_descriptor* f, uintptr_t addr, size_t sz) override;
+    uintptr_t write(file_descriptor* f, uintptr_t addr, size_t sz) override;
+};
 
 struct keyboard_console_vnode : public vnode {
     uintptr_t read(file_descriptor* f, uintptr_t addr, size_t sz) override;
@@ -36,10 +36,10 @@ struct keyboard_console_vnode : public vnode {
 
 struct file_descriptor {
     enum fd_t {
-        fd_kbd_cons,
-        fd_memfile,
-        fd_pipe,
-        fd_disk
+        kbd_cons_t,
+        memfile_t,
+        pipe_t,
+        disk_t
     };
     spinlock lock_;
     std::atomic<int> ref_ = 0;       // number of processes referencing this

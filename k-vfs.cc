@@ -154,3 +154,50 @@ uintptr_t bounded_buffer::write(const char* buf, size_t sz) {
 
     return pos;
 }
+
+uintptr_t memfile_vnode::read(file_descriptor* fd, uintptr_t addr, size_t sz) {
+    // grab file_descriptor lock to sync with write
+    spinlock_guard fd_guard(fd->lock_);
+
+    // illegal to read from non-readable file
+    if(!fd->readable_) {
+        return E_BADF;
+    }
+
+    memfile* mf = reinterpret_cast<memfile*>(fd->vnode_->data_);
+    // TODO: add an invariant to avoid deadlock
+    // grab memfile lock to sync with memfile_vnode::write()
+    spinlock_guard mf_guard(mf->lock_);
+    // avoid buffer overflow
+    sz = min(sz, mf->len_ - fd->rpos_);
+    // read next 'sz' bytes from memfile into 'addr'
+    memcpy(reinterpret_cast<void*>(addr), &mf->data_[fd->rpos_], sz);
+    fd->rpos_ += sz;
+
+    return sz;
+}
+
+uintptr_t memfile_vnode::write(file_descriptor *fd, uintptr_t addr, size_t sz) {
+    // grab file_descriptor lock to sync with read
+    spinlock_guard fd_guard(fd->lock_);
+
+    // illegal to write to non-writable file
+    if(!fd->writable_) {
+        return E_BADF;
+    }
+
+    memfile* mf = reinterpret_cast<memfile*>(fd->vnode_->data_);
+    // grab memfile lock to sync with memfile_vnode::read()
+    spinlock_guard mf_guard(mf->lock_);
+    if(mf->set_length(fd->wpos_ + sz) == E_NOSPC) {
+        return E_NOSPC;
+    }
+    // avoid overflow
+    sz = mf->capacity_ - fd->wpos_;
+    // write 'sz' bytes from 'addr' to memfile
+    memcpy(&mf->data_[fd->wpos_], reinterpret_cast<void*>(addr), sz);
+    fd->wpos_ += sz;
+    memset(&mf->data_[fd->wpos_], 0, 1);
+
+    return sz;
+}

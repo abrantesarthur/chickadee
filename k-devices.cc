@@ -264,6 +264,8 @@ int memfile::initfs_lookup(const char* name, bool create) {
 
     // search for a file named `name`
     for (memfile* f = initfs; f != initfs + initfs_size; ++f) {
+        // must grab the lock to access memfile
+        spinlock_guard(f->lock_);
         if (!f->empty()
             && memcmp(f->name_, name, namelen) == 0
             && f->name_[namelen] == 0) {
@@ -284,6 +286,8 @@ int memfile::initfs_lookup(const char* name, bool create) {
         // name too long for `memfile::name_`
         return E_NAMETOOLONG;
     } else {
+        // must grab the lock to access memfile
+        spinlock_guard(empty->lock_);
         memcpy(empty->name_, name, namelen);
         empty->name_[namelen] = 0;
         empty->data_ = nullptr;
@@ -299,6 +303,8 @@ int memfile::initfs_lookup(const char* name, bool create) {
 //    Returns 0 on success and an error code such as `E_NOSPC` on
 //    failure.
 int memfile::set_length(size_t len) {
+    // must grab the lock to access memfile
+    assert(lock_.is_locked());
     // grow file if necessary
     if (len > capacity_) {
         // allocate new data
@@ -336,6 +342,8 @@ int memfile::set_length(size_t len) {
 // `memfile`. See `k-proc.cc` for more on `proc_loader`s.
 
 ssize_t memfile_loader::get_page(uint8_t** pg, size_t off) {
+    // must grab the lock to access memfile
+    spinlock_guard(memfile_->lock_);
     if (!memfile_) {
         return E_NOENT;
     } else if (off >= memfile_->len_) {

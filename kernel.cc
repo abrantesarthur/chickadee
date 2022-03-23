@@ -357,6 +357,12 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
             return syscall_execv(program_name, argv, argc);
         }
 
+        case SYSCALL_OPEN: {
+            const char* pathname = reinterpret_cast<const char*>(regs->reg_rdi);
+            int flags = regs->reg_rsi;
+            return syscall_open(pathname, flags);
+        }
+
         default:
             // no such system call
             log_printf("%d: no such system call %u\n", id_, regs->reg_rax);
@@ -775,7 +781,7 @@ int proc::syscall_close(int fd) {
     --f->ref_;
     if(!f->ref_) {
         // if file is a pipe, try closing it
-        if(f->type_ == file_descriptor::fd_pipe) {
+        if(f->type_ == file_descriptor::pipe_t) {
             try_close_pipe(f);
         }
 
@@ -796,7 +802,7 @@ int proc::syscall_close(int fd) {
 // try_close_pipe(f)
 //      close pipe and free its resources if possible
 void proc::try_close_pipe(file_descriptor* f) {
-    assert(f->type_ == file_descriptor::fd_pipe);
+    assert(f->type_ == file_descriptor::pipe_t);
     bounded_buffer* b = reinterpret_cast<bounded_buffer*>(f->vnode_->data_);
     if(f->writable_) {
         b->write_closed_ = true;
@@ -837,11 +843,11 @@ int proc::fd_alloc(bool readable, bool writable, int type) {
 
 uintptr_t proc::syscall_pipe() {
     // allocate read and write ends
-    int rfd = fd_alloc(true, false, file_descriptor::fd_pipe);
+    int rfd = fd_alloc(true, false, file_descriptor::pipe_t);
     if(rfd < 0) {
         return rfd;
     }
-    int wfd = fd_alloc(false, true, file_descriptor::fd_pipe);
+    int wfd = fd_alloc(false, true, file_descriptor::pipe_t);
     if(wfd < 0) {
         fd_table_[rfd] = nullptr;
         kfree(fd_table_[rfd]);
@@ -871,12 +877,24 @@ uintptr_t proc::syscall_pipe() {
     return (wfd_cast << 32) | rfd;
 }
 
+bool is_path_valid(proc* p, const char* pathname) {
+    if(!pathname) {
+        return false;
+    }
+    vmiter it(p, reinterpret_cast<uintptr_t>(pathname));
+    uintptr_t init_va = it.va();
+    for(; it.va() < init_va + memfile::namesize && it.va() < MEMSIZE_VIRTUAL; it += 1) {
+        if(!it.user() || !it.present()) {
+            return false;
+        }
+    }
+    return true;
+}
+
 int proc::syscall_execv(uintptr_t program_name, const char* const* argv, size_t argc) {
     // validate program name
-    for(vmiter it(this, program_name); it.va() < program_name + memfile::namesize; it+= 1) {
-        if(!it.user()) {
-            return E_FAULT;
-        }
+    if(!is_path_valid(this, reinterpret_cast<const char*>(program_name))) {
+        return E_FAULT;
     }
 
     // validate argc and argv
@@ -954,8 +972,6 @@ int proc::syscall_execv(uintptr_t program_name, const char* const* argv, size_t 
         *(it.kptr<unsigned long*>()) = args_addrs[i];
     }
 
-    // TODO: lock ptable
-
     // save old pagetable
     x86_64_pagetable *old_pgtable = this->pagetable_;
 
@@ -975,9 +991,53 @@ int proc::syscall_execv(uintptr_t program_name, const char* const* argv, size_t 
     // free old pagetable and user memory
     kfree_mem(old_pgtable);
     kfree_pagetable(old_pgtable);
-
     yield_noreturn();
 }
+
+int proc::syscall_open(const char* pathname, int flags) {
+    if(!is_path_valid(this, pathname)) {
+        return E_FAULT;
+    }
+
+    // get the memfile
+    irqstate irqs = initfs_lock.lock();
+    int mfi = memfile::initfs_lookup(pathname, flags & OF_CREATE);
+    initfs_lock.unlock(irqs);
+    if(mfi == E_NOSPC) { // no space
+        return E_NOSPC;
+    }
+    if(mfi == E_NOENT) { // no file
+        return E_NOENT;
+    }
+    if(mfi == E_NAMETOOLONG) { // name too long
+        return E_FAULT;
+    }
+    memfile* mf = &memfile::initfs[mfi];
+
+    // truncate memfile's length if requested by flags
+    irqs = mf->lock_.lock();
+    if(flags & OF_TRUNC && mf->len_) {
+        mf->set_length(0);
+    }
+    mf->lock_.unlock(irqs);
+
+    // allocate file descriptor
+    int fd = fd_alloc(flags & OF_READ, flags & OF_WRITE, file_descriptor::memfile_t);
+    if(fd < 0) {
+        return fd;
+    }
+    file_descriptor *f = fd_table_[fd];
+    f->vnode_ = knew<memfile_vnode>();
+    if(!f->vnode_) {
+        kfree(f);
+        fd_table_[fd] = nullptr;
+    }
+    f->vnode_->ref_ = 1;
+    f->vnode_->data_ = reinterpret_cast<void*>(mf);
+
+    return fd;
+}
+
 
 
 // memshow()

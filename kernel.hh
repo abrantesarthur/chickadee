@@ -102,6 +102,7 @@ struct __attribute__((aligned(4096))) proc {
     int syscall_close(int fd);
     uintptr_t syscall_pipe();
     int syscall_execv(uintptr_t program_name, const char* const* argv, size_t argc);
+    int syscall_open(const char* pathname, int flags);
     void try_close_pipe(file_descriptor* f);
 
     void wake();
