@@ -518,7 +518,6 @@ void proc::syscall_exit(int status) {
          // free process' user-acessible memory
         kfree_mem(this);
 
-
         // interrupt parent if it's sleeping
         proc* parent = ptable[ppid_];
         if(parent->sleeping_) {

@@ -18,9 +18,6 @@ struct elf_program;
 #define PROC_CANARY 0xabcdef
 #define FDS_COUNT 32
 
-// TODO: add keyboardstate_wq;
-
-
 // kernel.hh
 //
 //    Functions, constants, and definitions for the kernel.
@@ -370,12 +367,6 @@ void kfree_mem(proc* p);
 // kfree_pagetable(pagetable)
 //    Free the 'pagetable'
 void kfree_pagetable(x86_64_pagetable* pagetable);
-
-// TODO: implement
-// kfree_fd_table(p)
-//      free the file descriptor table of process 'p'
-void kfree_fd_table(proc* p);
-
 
 // operator new, operator delete
 //    Expressions like `new (std::nothrow) T(...)` and `delete x` work,
