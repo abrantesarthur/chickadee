@@ -5,8 +5,65 @@
 bufcache bufcache::bc;
 
 bufcache::bufcache() {
+    for(size_t i = 0; i < ne; ++i) {
+        lru_stack[i] = -1;
+    }
 }
 
+// bufcache::mark_mru(ei)
+//    Marsk the buffer cache entry with entry index 'ei' as the most 
+//    recently used one. It is wrong to call mark_mru when the
+//    lru_stack is full and 'ei' is not in the lru_stack. Instad,
+//    call bufcache::evict_lru() first to make a slot available.
+void bufcache::mark_mru(int ei) {
+    assert(lock_.is_locked());
+    size_t i, slot = -1;
+    // loof for slot with 'ei' of that is empty
+    for(i = 0; i < ne; ++i) {
+        if(lru_stack[i] == ei) {
+            slot = i;
+            break;
+        } else if(lru_stack[i] < 0) {
+            slot = i;
+        }
+    }
+
+    // a slot must have been found
+    assert(slot != size_t(-1));
+
+    // mark 'ei' the most recently used one
+    for(int j = slot; j > 0; j--) {
+        lru_stack[j] = lru_stack[j - 1];
+    }
+    lru_stack[0] = ei;
+}
+
+// TODO: update when introduce es_dirty
+int bufcache::evict_lru() {
+    assert(lock_.is_locked());
+
+    // only evict when buffer cache is full
+    assert(lru_stack[ne - 1] >= 0);
+
+    int ei;
+    while(true) {
+        // look for lru entry with zero ref count
+        for(int i = ne - 1; i >= 0; i--) {
+            ei = lru_stack[i];
+            irqstate eirqs = e_[ei].lock_.lock();
+            // if found, reset bufcache entry and lru_stack slot, and return slot
+            if(!e_[ei].ref_) {
+                e_[ei].clear();
+                lru_stack[i] = -1;
+                e_[ei].lock_.unlock(eirqs);
+                return ei;
+            }
+        }
+
+        // couldn't find unreferenced entries
+        return -1;
+    }
+}
 
 // bufcache::get_disk_entry(bn, cleaner)
 //    Reads disk block `bn` into the buffer cache, obtains a reference to it,
@@ -23,6 +80,8 @@ bcentry* bufcache::get_disk_entry(chkfs::blocknum_t bn,
     assert(chkfs::blocksize == PAGESIZE);
     auto irqs = lock_.lock();
 
+    // TODO: always keep superblock in the cache
+
     // look for slot containing `bn`
     size_t i, empty_slot = -1;
     for (i = 0; i != ne; ++i) {
@@ -35,16 +94,22 @@ bcentry* bufcache::get_disk_entry(chkfs::blocknum_t bn,
         }
     }
 
-    // if not found, use free slot
+    // if not found, use a free slot
     if (i == ne) {
+        // if cache is full, evict lru entry
         if (empty_slot == size_t(-1)) {
-            // cache full!
-            lock_.unlock(irqs);
-            log_printf("bufcache: no room for block %u\n", bn);
-            return nullptr;
+            empty_slot = evict_lru();
+            if(empty_slot == size_t(-1)) {
+                log_printf("bufcache: failed to evict lru entry to store block %u\n", bn);
+                lock_.unlock(irqs);
+                return nullptr;
+            }
         }
         i = empty_slot;
     }
+
+    // mark most recently used slot
+    mark_mru(i);
 
     // obtain entry lock
     e_[i].lock_.lock_noirq();
@@ -116,15 +181,16 @@ bool bcentry::load(irqstate& irqs, bcentry_clean_function cleaner) {
 
 
 // bcentry::put()
-//    Releases a reference to this buffer cache entry. The caller must
-//    not use the entry after this call.
+//    Releases a reference to this buffer cache entry. Does not
+//    call clear() (i.e., free underlying buffer cache entry) if
+//    reference count hits zero. Instead, delay the freeing of
+//    memory for later under a LRU policy. The caller must not
+//    use the entry after this call. Although
 
 void bcentry::put() {
     spinlock_guard guard(lock_);
-    assert(ref_ != 0);
-    if (--ref_ == 0) {
-        clear();
-    }
+    assert(ref_ > 0);
+    --ref_;
 }
 
 
@@ -273,7 +339,7 @@ chkfs::inode* chkfsstate::get_inode(inum_t inum) {
     assert(superblock_entry);
     auto& sb = *reinterpret_cast<chkfs::superblock*>
         (&superblock_entry->buf_[chkfs::superblock_offset]);
-    superblock_entry->put();    // TODO: stop putting sb away everytime
+    superblock_entry->put();
 
     chkfs::inode* ino = nullptr;
     if (inum > 0 && inum < sb.ninodes) {

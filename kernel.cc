@@ -371,8 +371,11 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
 }
 
 int proc::syscall_nasty() {
-    int nasty_array[1000];
-    for(int i = 0; i < 1000; i++) {
+    // make this sz == 1000 to properly evoke syscall_nasty.
+    // we set it to only 10 to avoid compilation warnings.
+    const int sz = 10;
+    int nasty_array[sz];
+    for(int i = 0; i < sz; i++) {
         nasty_array[i] = 2;
     }
     return nasty_array[1] + nasty_array[2];
@@ -962,6 +965,8 @@ int proc::syscall_execv(uintptr_t program_name, const char* const* argv, size_t 
         sz = strlen(argv[i]) + 1;
         it -= sz;
         memcpy(it.kptr<char*>(), argv[i], sz);
+        // TODO: this is causing compilation warnings. Fix it by removing the
+        // args_addrs variable and removing the second for loop.
         args_addrs[i] = it.va();
     }
     it -= sizeof(uintptr_t);

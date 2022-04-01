@@ -49,11 +49,13 @@ struct bcentry {
 struct bufcache {
     using blocknum_t = bcentry::blocknum_t;
 
-    static constexpr size_t ne = 10;
+    // TODO: increase number of entries
+    static constexpr size_t ne = 100;
 
     spinlock lock_;                  // protects all entries' bn_ and ref_
     wait_queue read_wq_;
     bcentry e_[ne];
+    int lru_stack[ne];              // least recently used entries
 
 
     static inline bufcache& get();
@@ -62,6 +64,8 @@ struct bufcache {
                             bcentry_clean_function cleaner = nullptr);
 
     int sync(int drop);
+    void mark_mru(int index);       // mark most recently used entry
+    int evict_lru();  // evict least recently used entry
 
  private:
     static bufcache bc;
@@ -127,6 +131,7 @@ inline bool bcentry::contains(const void* ptr) const {
 
 inline void bcentry::clear() {
     assert(ref_ == 0);
+    assert(lock_.is_locked());
     estate_ = es_empty;
     if (buf_) {
         kfree(buf_);
