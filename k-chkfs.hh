@@ -54,7 +54,7 @@ struct bufcache {
 
     spinlock lock_;                  // protects all entries' bn_ and ref_
     wait_queue read_wq_;
-    bcentry e_[ne];
+    bcentry e_[ne + 1];             // add extra entry for superblock
     int lru_stack[ne];              // least recently used entries
 
 

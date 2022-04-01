@@ -81,35 +81,41 @@ bcentry* bufcache::get_disk_entry(chkfs::blocknum_t bn,
     auto irqs = lock_.lock();
 
     // TODO: always keep superblock in the cache
+    
+    size_t i;
+    if(bn == 0) {
+        // superblock is always the last entry
+        i = ne;
+    } else {
+        // look for slot containing `bn`
+        size_t empty_slot = -1;
+        for (i = 0; i != ne; ++i) {
+            if (e_[i].empty()) {
+                if (empty_slot == size_t(-1)) {
+                    empty_slot = i;
+                }
+            } else if (e_[i].bn_ == bn) {
+                break;
+            }
+        }
 
-    // look for slot containing `bn`
-    size_t i, empty_slot = -1;
-    for (i = 0; i != ne; ++i) {
-        if (e_[i].empty()) {
+        // if not found, use a free slot
+        if (i == ne) {
+            // if cache is full, evict lru entry
             if (empty_slot == size_t(-1)) {
-                empty_slot = i;
+                empty_slot = evict_lru();
+                if(empty_slot == size_t(-1)) {
+                    log_printf("bufcache: failed to evict lru entry to store block %u\n", bn);
+                    lock_.unlock(irqs);
+                    return nullptr;
+                }
             }
-        } else if (e_[i].bn_ == bn) {
-            break;
+            i = empty_slot;
         }
-    }
 
-    // if not found, use a free slot
-    if (i == ne) {
-        // if cache is full, evict lru entry
-        if (empty_slot == size_t(-1)) {
-            empty_slot = evict_lru();
-            if(empty_slot == size_t(-1)) {
-                log_printf("bufcache: failed to evict lru entry to store block %u\n", bn);
-                lock_.unlock(irqs);
-                return nullptr;
-            }
-        }
-        i = empty_slot;
+        // mark most recently used slot
+        mark_mru(i);
     }
-
-    // mark most recently used slot
-    mark_mru(i);
 
     // obtain entry lock
     e_[i].lock_.lock_noirq();
