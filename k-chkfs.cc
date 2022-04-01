@@ -273,7 +273,7 @@ chkfs::inode* chkfsstate::get_inode(inum_t inum) {
     assert(superblock_entry);
     auto& sb = *reinterpret_cast<chkfs::superblock*>
         (&superblock_entry->buf_[chkfs::superblock_offset]);
-    superblock_entry->put();
+    superblock_entry->put();    // TODO: stop putting sb away everytime
 
     chkfs::inode* ino = nullptr;
     if (inum > 0 && inum < sb.ninodes) {

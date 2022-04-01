@@ -2,7 +2,6 @@
 
 
 // MAIN CHICKADEEFS ITERATOR FUNCTIONS
-
 chkfs_fileiter& chkfs_fileiter::find(off_t off) {
     // if moving backwards, rewind to start
     off_ = off;

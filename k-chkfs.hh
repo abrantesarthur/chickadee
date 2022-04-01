@@ -80,7 +80,6 @@ struct chkfsstate {
     using inode = chkfs::inode;
     static constexpr size_t blocksize = chkfs::blocksize;
 
-
     static inline chkfsstate& get();
 
     // obtain an inode by number
