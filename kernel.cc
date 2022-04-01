@@ -363,6 +363,14 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
             return syscall_open(pathname, flags);
         }
 
+        case SYSCALL_TESTKALLOC: {
+            return syscall_testkalloc(regs);
+        }
+
+        case SYSCALL_WILDALLOC: {
+            return syscall_wildalloc(regs);
+        }
+
         default:
             // no such system call
             log_printf("%d: no such system call %u\n", id_, regs->reg_rax);
@@ -1078,7 +1086,6 @@ static void memshow() {
             "\n\n\n\n\n\n\n\n\n\n\n");
     }
 }
-
 
 // tick()
 //    Called once every tick (0.01 sec, 1/HZ) by CPU 0. Updates the `ticks`

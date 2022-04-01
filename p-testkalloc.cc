@@ -1,50 +1,40 @@
 #include "u-lib.hh"
-#define ALLOC_SLOWDOWN 1
-
-extern uint8_t end[];
-
-uint8_t* heap_top;
-uint8_t* stack_bottom;
 
 void process_main() {
-    sys_consoletype(CONSOLE_MEMVIEWER);
+    int r;
 
-    // Fork three new copies. (But ignore failures.)
-    (void) sys_fork();
-    (void) sys_fork();
+    // kalloc tests
+    r = sys_testkalloc(0);
+    assert_eq(r, 0);
 
-    pid_t p = sys_getpid();
+    r = sys_testkalloc(1);
+    assert_eq(r, 0);
 
-    // The heap starts on the page right after the 'end' symbol,
-    // whose address is the first address not allocated to process code
-    // or data.
-    heap_top = reinterpret_cast<uint8_t*>(
-        round_up(reinterpret_cast<uintptr_t>(end), PAGESIZE)
-    );
+    r = sys_testkalloc(2);
+    assert_eq(r, 0);
 
-    // The bottom of the stack is the first address on the current
-    // stack page (this process never needs more than one stack page).
-    stack_bottom = reinterpret_cast<uint8_t*>(
-        round_down(rdrsp() - 1, PAGESIZE)
-    );
+    r = sys_testkalloc(3);
+    assert_eq(r, 0);
+
+    r = sys_testkalloc(4);
+    assert_eq(r, 0);
+
+    r = sys_testkalloc(5);
+    assert_eq(r, 0);
+
+    r = sys_testkalloc(6);
+    assert_eq(r, 0);
+
+    r = sys_testkalloc(7);
+    assert_eq(r, 0);
+
+    // wild alloc tests: they should cause assertion failures!
+    // sys_wildalloc(1);
+    // sys_wildalloc(2);
+    // sys_wildalloc(3);
 
 
-    while (true) {
-        if (rand(0, ALLOC_SLOWDOWN - 1) < p) {
-            if (heap_top == stack_bottom || sys_page_alloc(heap_top) < 0) {
-                break;
-            }
-            *heap_top = p;      /* check we have write access to new page */
-            heap_top += PAGESIZE;
-        }
-        sys_yield();
-        if (rand() < RAND_MAX / 32) {
-            sys_pause();
-        }
-    }
+    console_printf("testkalloc succeeded.\n");
 
-    // After running out of memory, do nothing forever
-    while (true) {
-        sys_yield();
-    }
+    sys_exit(0);
 }
