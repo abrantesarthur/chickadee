@@ -39,6 +39,7 @@ void bufcache::mark_mru(int ei) {
 }
 
 // TODO: update when introduce es_dirty
+// TODO: part A: inodes have higher priority in staying
 int bufcache::evict_lru() {
     assert(lock_.is_locked());
 
@@ -79,8 +80,6 @@ bcentry* bufcache::get_disk_entry(chkfs::blocknum_t bn,
                                   bcentry_clean_function cleaner) {
     assert(chkfs::blocksize == PAGESIZE);
     auto irqs = lock_.lock();
-
-    // TODO: always keep superblock in the cache
     
     size_t i;
     if(bn == 0) {
