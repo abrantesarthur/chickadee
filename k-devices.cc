@@ -381,7 +381,7 @@ ssize_t diskfile_loader::get_page(uint8_t** pg, size_t off) {
     chkfs_fileiter it(ino_);
     e_ = it.find(off).get_disk_entry();
     *pg = e_->buf_ + it.block_relative_offset();
-    size_t bytes_left = ino_->size - off;
+    size_t bytes_left = chkfs::blocksize - it.block_relative_offset();
     ino_->unlock_read();
     return bytes_left;
 }
