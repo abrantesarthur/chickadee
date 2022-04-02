@@ -805,19 +805,19 @@ int proc::syscall_close(int fd) {
 //      close pipe and free its resources if possible
 void proc::try_close_pipe(file_descriptor* f) {
     assert(f->type_ == file_descriptor::pipe_t);
-    bounded_buffer* b = reinterpret_cast<bounded_buffer*>(f->vnode_->data_);
+    pipe_vnode* vnode_ = reinterpret_cast<pipe_vnode*>(f->vnode_);
     if(f->writable_) {
-        b->write_closed_ = true;
-        b->wq_.wake_all();
+        vnode_->buf_->write_closed_ = true;
+        vnode_->buf_->wq_.wake_all();
     }
     if(f->readable_) {
-        b->read_closed_ = true;
-        b->wq_.wake_all();
+        vnode_->buf_->read_closed_ = true;
+        vnode_->buf_->wq_.wake_all();
     }
     // free buffer if read and write ends are closed
-    if(b->write_closed_ && b->read_closed_) {
-        kfree(f->vnode_->data_);
-        f->vnode_->data_ = nullptr;
+    if(vnode_->buf_->write_closed_ && vnode_->buf_->read_closed_) {
+        kfree(vnode_->buf_);
+        vnode_->buf_ = nullptr;
     }
 }
 
@@ -857,23 +857,21 @@ uintptr_t proc::syscall_pipe() {
     }
 
     // allocate vnode and its bounded buffer
-    pipe_vnode* vnode_ptr = reinterpret_cast<pipe_vnode*>(knew<pipe_vnode>());
-    bounded_buffer* bbuffer_ptr = reinterpret_cast<bounded_buffer*>(knew<bounded_buffer>());
-    if(!vnode_ptr || !bbuffer_ptr) {
+    bounded_buffer* buf_ = reinterpret_cast<bounded_buffer*>(knew<bounded_buffer>());
+    pipe_vnode* vnode_ = reinterpret_cast<pipe_vnode*>(knew<pipe_vnode>(buf_, 2));
+    if(!vnode_ || !buf_) {
         kfree(fd_table_[rfd]);
         fd_table_[rfd] = nullptr;
         kfree(fd_table_[wfd]);
         fd_table_[wfd] = nullptr;
-        kfree(vnode_ptr);
-        kfree(bbuffer_ptr);
+        kfree(vnode_);
+        kfree(buf_);
         return E_NOMEM;
     }
 
     // point file descriptors to vnode
-    vnode_ptr->data_ = bbuffer_ptr;
-    vnode_ptr->ref_ = 2;
-    fd_table_[rfd]->vnode_ = vnode_ptr;
-    fd_table_[wfd]->vnode_ = vnode_ptr;
+    fd_table_[rfd]->vnode_ = vnode_;
+    fd_table_[wfd]->vnode_ = vnode_;
     
     uintptr_t wfd_cast = wfd;
     return (wfd_cast << 32) | rfd;
@@ -885,7 +883,7 @@ bool is_path_valid(proc* p, const char* pathname) {
     }
     vmiter it(p, reinterpret_cast<uintptr_t>(pathname));
     uintptr_t init_va = it.va();
-    for(; it.va() < init_va + memfile::namesize && it.va() < MEMSIZE_VIRTUAL; it += 1) {
+    for(; it.va() < (init_va + memfile::namesize + 1) && it.va() < MEMSIZE_VIRTUAL; it += 1) {
         if(!it.user() || !it.present()) {
             return false;
         }
@@ -951,6 +949,8 @@ int proc::syscall_execv(uintptr_t program_name, const char* const* argv, size_t 
         return E_NOMEM;
     }
 
+    // TODO: make run-exececho not working
+    
     // copy arguments into new stack
     uintptr_t args_addrs[argc];
     uintptr_t sz;
@@ -1025,13 +1025,11 @@ int proc::syscall_open(const char* pathname, int flags) {
         return fd;
     }
     file_descriptor *f = fd_table_[fd];
-    f->vnode_ = knew<memfile_vnode>();
+    f->vnode_ = knew<memfile_vnode>(mf, 1);
     if(!f->vnode_) {
         kfree(f);
         fd_table_[fd] = nullptr;
     }
-    f->vnode_->ref_ = 1;
-    f->vnode_->data_ = reinterpret_cast<void*>(mf);
 
     return fd;
 }
