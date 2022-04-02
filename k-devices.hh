@@ -145,7 +145,7 @@ struct memfile_loader : public proc_loader {
 
 
 // diskfile_loader: loads a 'proc' from a 'diskfile' represented by
-// 'ino_' and 'e_'
+// 'ino_' and stored in 'e_'
 struct diskfile_loader : public proc_loader {
     chkfs::inode* ino_;
     bcentry* e_;

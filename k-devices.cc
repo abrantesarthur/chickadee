@@ -1,5 +1,6 @@
 #include "k-devices.hh"
 #include "k-apic.hh"
+#include "k-chkfsiter.hh"
 
 // k-devices.cc
 //
@@ -356,4 +357,35 @@ ssize_t memfile_loader::get_page(uint8_t** pg, size_t off) {
 
 void memfile_loader::put_page() {
     // no need to do anything
+}
+
+// diskfile_loader functions
+
+ssize_t diskfile_loader::get_page(uint8_t** pg, size_t off) {
+    if(!ino_) return E_NOENT;
+    
+    ino_->lock_read();
+
+    // inode must refer to regular file
+    if(ino_->type != chkfs::type_regular) {
+        ino_->unlock_read();
+        return E_NOENT;
+    }
+    // prevet off bounds read
+    if(off >= ino_->size) {
+        ino_->unlock_read();
+        return 0;
+    }
+
+    // copy data from disk into buffer cache
+    chkfs_fileiter it(ino_);
+    e_ = it.find(off).get_disk_entry();
+    *pg = e_->buf_ + it.block_relative_offset();
+    size_t bytes_left = ino_->size - off;
+    ino_->unlock_read();
+    return bytes_left;
+}
+
+void diskfile_loader::put_page(){
+    if(e_) e_->put();
 }
