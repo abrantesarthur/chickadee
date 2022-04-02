@@ -915,33 +915,27 @@ int proc::syscall_execv(uintptr_t program_name, const char* const* argv, size_t 
         return E_FAULT;
     }
 
+    // find the corresponding disk file
+    if(!sata_disk) return E_IO;
+    auto ino = chkfsstate::get().lookup_inode(reinterpret_cast<const char*>(program_name));
+    if(!ino) return E_FAULT;
+
     // allocate a pagetable
     x86_64_pagetable *pgtable = kalloc_pagetable();
     if(!pgtable) {
         return E_NOMEM;
     }
 
-    // find the corresponding memfile
-    irqstate irqs = initfs_lock.lock();
-    int mfi = memfile::initfs_lookup(reinterpret_cast<const char*>(program_name), false);
-    if(mfi == E_NOENT || mfi == E_NOSPC || mfi == E_NAMETOOLONG) {
-        initfs_lock.unlock(irqs);
-        kfree_pagetable(pgtable);
-        return E_FAULT;
-    }
-
-    // instantiate a proc_loader with the memfile and pagetable
-    memfile_loader ld(mfi, pgtable);
-    assert(ld.memfile_ && ld.pagetable_);
+    // instantiate a proc_loader with the disk file and pagetable
+    diskfile_loader ld(ino, pgtable);
 
     // load program into user-level memory
     int r = proc::load(ld);
-    initfs_lock.unlock(irqs);
     if(r < 0){
         kfree_pagetable(pgtable);
         return r;
     }
-
+    
     // map the user level stack at address MEMSIZE_VIRTUAL
     void* stackpg = kalloc(PAGESIZE);
     if(!stackpg || vmiter(pgtable, MEMSIZE_VIRTUAL - PAGESIZE).try_map(stackpg, PTE_PWU) < 0) {

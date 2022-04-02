@@ -110,7 +110,6 @@ void proc::panic_nonrunnable() {
 //    such as `E_NOMEM` for out of memory or `E_NOEXEC` for not an executable.
 
 int proc::load(proc_loader& ld) {
-    assert(initfs_lock.is_locked());
     union {
         elf_header eh;
         elf_program ph[4];
