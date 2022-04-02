@@ -33,6 +33,10 @@ struct keyboard_console_vnode : public vnode {
     uintptr_t write(file_descriptor* f, uintptr_t addr, size_t sz) override;
 };
 
+struct diskfile_vnode : public vnode {
+    uintptr_t read(file_descriptor* f, uintptr_t addr, size_t sz) override;
+    uintptr_t write(file_descriptor* f, uintptr_t addr, size_t sz) override;
+}
 
 struct file_descriptor {
     enum fd_t {
