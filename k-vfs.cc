@@ -1,6 +1,8 @@
 #include "k-vfs.hh"
 #include "k-wait.hh"
 #include "k-devices.hh"
+#include "k-chkfs.hh"
+#include "k-chkfsiter.hh"
 
 uintptr_t keyboard_console_vnode::read(file_descriptor* f, uintptr_t addr, size_t sz) {
     auto& kbd = keyboardstate::get();
@@ -192,4 +194,44 @@ uintptr_t memfile_vnode::write(file_descriptor *f, uintptr_t addr, size_t sz) {
     memset(&mf_->data_[f->wpos_], 0, 1);
 
     return sz;
+}
+
+uintptr_t diskfile_vnode::read(file_descriptor *f, uintptr_t addr, size_t sz) {
+    // grab file_descriptor lock to sync with write
+    spinlock_guard g(f->lock_);
+
+    if(f->readable_) return E_BADF;
+    
+    ino_->lock_read();
+    if(!ino_->size) {
+        ino_->unlock_read();
+    }
+
+    chkfs_fileiter it(ino_);
+
+    size_t nread = 0;
+    unsigned char* buf = reinterpret_cast<unsigned char*>(addr);
+    while(nread < sz) {
+        // copy data from current block
+        if(bcentry* e = it.find(f->rpos_).get_disk_entry()) {
+            unsigned b = it.block_relative_offset();
+            size_t ncopy = min(
+                size_t(ino_->size - it.offset()),
+                chkfs::blocksize - b,
+                sz - nread
+            );
+            memcpy(buf + nread, e->buf_ + b, ncopy);
+            e->put();
+
+            nread += ncopy;
+            f->rpos_ += ncopy;
+            if(f->writable_) f->wpos_ += ncopy;
+            if(ncopy == 0) break;
+        } else {
+            break;
+        }
+    }
+
+    ino_->unlock_read();
+    return nread;
 }

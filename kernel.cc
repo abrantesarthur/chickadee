@@ -913,18 +913,19 @@ int proc::syscall_execv(uintptr_t program_name, const char* const* argv, size_t 
         return E_FAULT;
     }
 
-    // find the corresponding disk file
-    if(!sata_disk) return E_IO;
-    auto ino = chkfsstate::get().lookup_inode(reinterpret_cast<const char*>(program_name));
-    if(!ino) return E_FAULT;
-
     // allocate a pagetable
     x86_64_pagetable *pgtable = kalloc_pagetable();
     if(!pgtable) {
         return E_NOMEM;
     }
 
+    // find the corresponding disk file
+    if(!sata_disk) return E_IO;
+    auto ino = chkfsstate::get().lookup_inode(reinterpret_cast<const char*>(program_name));
+    if(!ino) return E_FAULT;
+
     // instantiate a proc_loader with the disk file and pagetable
+    // TODO: something bout loading a disk file makes make run-exececho not work
     diskfile_loader ld(ino, pgtable);
 
     // load program into user-level memory
@@ -948,8 +949,6 @@ int proc::syscall_execv(uintptr_t program_name, const char* const* argv, size_t 
         kfree_pagetable(pgtable);
         return E_NOMEM;
     }
-
-    // TODO: make run-exececho not working
     
     // copy arguments into new stack
     uintptr_t args_addrs[argc];
