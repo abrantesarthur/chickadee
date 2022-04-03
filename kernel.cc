@@ -652,11 +652,11 @@ uintptr_t proc::syscall_read(regstate* regs) {
         return E_BADF;
     }
 
+
     // test that memory range is present, writable, and user-accessible
     if(!(vmiter(this, addr).range_perm(sz, PTE_PWU))) {
         return E_FAULT;
     }
-
     // read 'sz' bytes into 'addr' and from file descriptor
     return fd_table_[fd]->vnode_->read(fd_table_[fd], addr, sz);
 }
@@ -883,9 +883,14 @@ bool is_path_valid(proc* p, const char* pathname) {
     }
     vmiter it(p, reinterpret_cast<uintptr_t>(pathname));
     uintptr_t init_va = it.va();
-    for(; it.va() < (init_va + memfile::namesize + 1) && it.va() < MEMSIZE_VIRTUAL; it += 1) {
+    for(; it.va() < (init_va + chkfs::maxnamelen + 1) && it.va() < MEMSIZE_VIRTUAL; it += 1) {
         if(!it.user() || !it.present()) {
             return false;
+        }
+
+        // end of string
+        if(*(it.kptr<char*>()) == 0) {
+            break;
         }
     }
     return true;
@@ -992,44 +997,25 @@ int proc::syscall_execv(uintptr_t program_name, const char* const* argv, size_t 
 }
 
 int proc::syscall_open(const char* pathname, int flags) {
-    if(!is_path_valid(this, pathname)) {
-        return E_FAULT;
-    }
+    if(!is_path_valid(this, pathname)) return E_FAULT;
+    if(!sata_disk) return E_IO;
 
-    // get the memfile
-    irqstate irqs = initfs_lock.lock();
-    int mfi = memfile::initfs_lookup(pathname, flags & OF_CREATE);
-    initfs_lock.unlock(irqs);
-    if(mfi == E_NOSPC) { // no space
-        return E_NOSPC;
-    }
-    if(mfi == E_NOENT) { // no file
-        return E_NOENT;
-    }
-    if(mfi == E_NAMETOOLONG) { // name too long
-        return E_FAULT;
-    }
-    memfile* mf = &memfile::initfs[mfi];
-
-    // truncate memfile's length if requested by flags
-    irqs = mf->lock_.lock();
-    if(flags & OF_TRUNC && mf->len_) {
-        mf->set_length(0);
-    }
-    mf->lock_.unlock(irqs);
+    // read file from disk
+    chkfs::inode* ino = chkfsstate::get().lookup_inode(pathname);
+    if(!ino) return E_NOENT;
 
     // allocate file descriptor
-    int fd = fd_alloc(flags & OF_READ, flags & OF_WRITE, file_descriptor::memfile_t);
-    if(fd < 0) {
-        return fd;
-    }
+    int fd = fd_alloc(flags & OF_READ, flags & OF_WRITE, file_descriptor::disk_t);
+    if(fd < 0) return fd;
     file_descriptor *f = fd_table_[fd];
-    f->vnode_ = knew<memfile_vnode>(mf, 1);
+
+    // allocate disk vnode
+    f->vnode_ = knew<diskfile_vnode>(ino, 1);
     if(!f->vnode_) {
         kfree(f);
         fd_table_[fd] = nullptr;
     }
-
+    
     return fd;
 }
 

@@ -197,20 +197,19 @@ uintptr_t memfile_vnode::write(file_descriptor *f, uintptr_t addr, size_t sz) {
 }
 
 uintptr_t diskfile_vnode::read(file_descriptor *f, uintptr_t addr, size_t sz) {
-    // grab file_descriptor lock to sync with write
-    spinlock_guard g(f->lock_);
+    if(!f->readable_) return E_BADF;
 
-    if(f->readable_) return E_BADF;
-    
     ino_->lock_read();
     if(!ino_->size) {
         ino_->unlock_read();
+        return 0;
     }
 
     chkfs_fileiter it(ino_);
 
     size_t nread = 0;
     unsigned char* buf = reinterpret_cast<unsigned char*>(addr);
+
     while(nread < sz) {
         // copy data from current block
         if(bcentry* e = it.find(f->rpos_).get_disk_entry()) {
@@ -234,4 +233,8 @@ uintptr_t diskfile_vnode::read(file_descriptor *f, uintptr_t addr, size_t sz) {
 
     ino_->unlock_read();
     return nread;
+}
+
+uintptr_t diskfile_vnode::write(file_descriptor *f, uintptr_t addr, size_t sz) {
+    return 0;
 }
