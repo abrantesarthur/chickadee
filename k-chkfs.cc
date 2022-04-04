@@ -5,6 +5,7 @@
 bufcache bufcache::bc;
 
 wait_queue bcentry::write_ref_wq_;
+list<bcentry, &bcentry::link_> bcentry::dirty_list_;
 
 bufcache::bufcache() {
     for(size_t i = 0; i < ne; ++i) {
@@ -192,7 +193,7 @@ bool bcentry::load(irqstate& irqs, bcentry_clean_function cleaner) {
 //    call clear() (i.e., free underlying buffer cache entry) if
 //    reference count hits zero. Instead, delay the freeing of
 //    memory for later under a LRU policy. The caller must not
-//    use the entry after this call. Although
+//    use the entry after this call.
 
 void bcentry::put() {
     spinlock_guard guard(lock_);
@@ -213,9 +214,15 @@ void bcentry::get_write() {
 
 
 // bcentry::put_write()
-//    Releases a write reference for this entry,
+//    Releases a write reference for this entry, and 
+//    mark it as dirty, if requested.
 
-void bcentry::put_write() {
+void bcentry::put_write(bool mark_dirty) {
+    if(mark_dirty) {
+        spinlock_guard g(lock_);
+        estate_ = es_dirty;
+        dirty_list_.push_front(this);
+    }
     write_ref_.store(0);
     write_ref_wq_.wake_all();
 }

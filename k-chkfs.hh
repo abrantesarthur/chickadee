@@ -13,7 +13,7 @@ struct bcentry {
     using blocknum_t = chkfs::blocknum_t;
 
     enum estate_t {
-        es_empty, es_allocated, es_loading, es_clean
+        es_empty, es_allocated, es_loading, es_clean, es_dirty
     };
 
     std::atomic<int> estate_ = es_empty;
@@ -24,6 +24,8 @@ struct bcentry {
     unsigned char* buf_ = nullptr;       // memory buffer used for entry
     std::atomic<int> write_ref_ = 0;     // write reference
     static wait_queue write_ref_wq_;     // write reference wait queue
+    list_links link_;
+    static list<bcentry, &bcentry::link_> dirty_list_;
 
 
     // return the index of this entry in the buffer cache
@@ -40,7 +42,7 @@ struct bcentry {
 
     // obtain/release a write reference to this entry
     void get_write();
-    void put_write();
+    void put_write(bool mark_dirty = true);
 
 
     // internal functions

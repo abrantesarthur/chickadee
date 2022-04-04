@@ -797,7 +797,7 @@ int proc::syscall_close(int fd) {
         --f->vnode_->ref_;
         if(!f->vnode_->ref_) {
             if(f->type_ == file_descriptor::disk_t) {
-                // release reference to disk file
+                // release buffer cache reference the file
                 reinterpret_cast<diskfile_vnode*>(f->vnode_)->ino_->put();
             }
             kfree(f->vnode_);

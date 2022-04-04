@@ -244,9 +244,11 @@ uintptr_t diskfile_vnode::write(file_descriptor *f, uintptr_t addr, size_t sz) {
     // concurrent writes are not allowed
     ino_->lock_write();
 
+    // TODO: how and when should we mark ino_->entry() as dirty?
+    //  probably when modifying ino_->size or when truncating it.
+
     // save initial wpos to update file size later
     size_t initial_wpos_ = f->wpos_;
-
     chkfs_fileiter it(ino_);
     size_t nwritten = 0;
     unsigned char* buf = reinterpret_cast<unsigned char*>(addr);
