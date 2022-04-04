@@ -199,6 +199,7 @@ uintptr_t memfile_vnode::write(file_descriptor *f, uintptr_t addr, size_t sz) {
 uintptr_t diskfile_vnode::read(file_descriptor *f, uintptr_t addr, size_t sz) {
     if(!f->readable_) return E_BADF;
 
+    // concurrent reads are not allowed
     ino_->lock_read();
     if(!ino_->size) {
         ino_->unlock_read();
@@ -224,6 +225,7 @@ uintptr_t diskfile_vnode::read(file_descriptor *f, uintptr_t addr, size_t sz) {
 
             nread += ncopy;
             f->rpos_ += ncopy;
+            // TODO: why do we do this?
             if(f->writable_) f->wpos_ += ncopy;
             if(ncopy == 0) break;
         } else {
@@ -236,5 +238,45 @@ uintptr_t diskfile_vnode::read(file_descriptor *f, uintptr_t addr, size_t sz) {
 }
 
 uintptr_t diskfile_vnode::write(file_descriptor *f, uintptr_t addr, size_t sz) {
-    return 0;
+    if(!sata_disk) return E_IO;
+    if(!f->writable_) return E_BADF;
+
+    // concurrent writes are not allowed
+    ino_->lock_write();
+
+    // save initial wpos to update file size later
+    size_t initial_wpos_ = f->wpos_;
+
+    chkfs_fileiter it(ino_);
+    size_t nwritten = 0;
+    unsigned char* buf = reinterpret_cast<unsigned char*>(addr);
+    while(nwritten < sz) {
+        if(bcentry* e = it.find(f->wpos_).get_disk_entry()) {
+            e->get_write();
+            unsigned b = it.block_relative_offset();
+            size_t ncopy = min(
+                size_t(ino_->size - it.offset()),       // bytes left in the file
+                chkfs::blocksize - b,                   // bytes left in the block
+                sz - nwritten                           // bytes left in the request
+            );
+            memcpy(e->buf_ + b, buf + nwritten, ncopy);
+            e->put_write();
+            e->put();
+
+            nwritten += ncopy;
+            f->wpos_ += ncopy;
+            if(f->readable_) f->rpos_ += nwritten;
+            if(!ncopy) break;
+        } else {
+            break;
+        }
+    }
+
+    // update file size
+    if(ino_->size < initial_wpos_ + nwritten) {
+        ino_->size += initial_wpos_ + nwritten;
+    }
+
+    ino_->unlock_write();
+    return nwritten;
 }

@@ -4,6 +4,8 @@
 
 bufcache bufcache::bc;
 
+wait_queue bcentry::write_ref_wq_;
+
 bufcache::bufcache() {
     for(size_t i = 0; i < ne; ++i) {
         lru_stack[i] = -1;
@@ -201,19 +203,21 @@ void bcentry::put() {
 
 // bcentry::get_write()
 //    Obtains a write reference for this entry.
-
+//    Prevents concurrent writes to this entry.
 void bcentry::get_write() {
-    // Your code here
-    assert(false);
+    assert(estate_ != es_empty);
+    waiter().block_until(write_ref_wq_, [&] () {
+        return write_ref_.exchange(1) == 0;
+    });
 }
 
 
 // bcentry::put_write()
-//    Releases a write reference for this entry.
+//    Releases a write reference for this entry,
 
 void bcentry::put_write() {
-    // Your code here
-    assert(false);
+    write_ref_.store(0);
+    write_ref_wq_.wake_all();
 }
 
 

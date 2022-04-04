@@ -22,6 +22,8 @@ struct bcentry {
     blocknum_t bn_;                      // disk block number (unless empty)
     unsigned ref_ = 0;                   // reference count
     unsigned char* buf_ = nullptr;       // memory buffer used for entry
+    std::atomic<int> write_ref_ = 0;     // write reference
+    static wait_queue write_ref_wq_;     // write reference wait queue
 
 
     // return the index of this entry in the buffer cache

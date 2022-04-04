@@ -778,6 +778,11 @@ int proc::syscall_close(int fd) {
 
     // protect access to file descriptor table
     spinlock_guard(f->lock_);
+
+    if(f->type_ == file_descriptor::disk_t) {
+        // illegal to close a disk file while holding a write reference
+        assert(reinterpret_cast<diskfile_vnode*>(f->vnode_)->ino_->entry()->write_ref_ == 0);
+    }
     
     // free file descriptor if not referenced by any process
     --f->ref_;
@@ -791,6 +796,10 @@ int proc::syscall_close(int fd) {
         spinlock_guard g(f->vnode_->lock_);
         --f->vnode_->ref_;
         if(!f->vnode_->ref_) {
+            if(f->type_ == file_descriptor::disk_t) {
+                // release reference to disk file
+                reinterpret_cast<diskfile_vnode*>(f->vnode_)->ino_->put();
+            }
             kfree(f->vnode_);
         }
 
@@ -1006,7 +1015,10 @@ int proc::syscall_open(const char* pathname, int flags) {
 
     // allocate file descriptor
     int fd = fd_alloc(flags & OF_READ, flags & OF_WRITE, file_descriptor::disk_t);
-    if(fd < 0) return fd;
+    if(fd < 0) {
+        ino->put();
+        return fd;
+    }
     file_descriptor *f = fd_table_[fd];
 
     // allocate disk vnode
@@ -1014,6 +1026,8 @@ int proc::syscall_open(const char* pathname, int flags) {
     if(!f->vnode_) {
         kfree(f);
         fd_table_[fd] = nullptr;
+        ino->put();
+        return E_NOMEM;
     }
     
     return fd;
