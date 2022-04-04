@@ -6,6 +6,7 @@ bufcache bufcache::bc;
 
 wait_queue bcentry::write_ref_wq_;
 list<bcentry, &bcentry::link_> bcentry::dirty_list_;
+wait_queue bufcache::evict_wq_;
 
 bufcache::bufcache() {
     for(size_t i = 0; i < ne; ++i) {
@@ -41,32 +42,58 @@ void bufcache::mark_mru(int ei) {
     lru_stack[0] = ei;
 }
 
-// TODO: update when introduce es_dirty
-// TODO: part A: inodes have higher priority in staying
-int bufcache::evict_lru() {
+// bufcache::get_lru()
+//    returns the buffer cache index of the least recently
+//    used entry that is unreferenced and not dirty, or -1
+//    if not found. If found an entry, it locks it and stores
+//    the irqstate in '&eirqs'
+int bufcache::get_lru(irqstate& eirqs) {
+    assert(lock_.is_locked());
+
+    int ei;
+    // look for lru, unreferenced, and non-dirty entry
+    for(int i = ne - 1; i >= 0; i--) {
+        ei = lru_stack[i];
+        eirqs = e_[ei].lock_.lock();
+        // if found, return entry index
+        if(!e_[ei].ref_ && e_[ei].estate_ != bcentry::es_dirty) {
+            return ei;
+        }
+        e_[ei].lock_.unlock(eirqs);
+    }
+
+    return -1;
+}
+
+// bufcache::evict_lru(irqs)
+//    returns the entry of the evicted entry. Its `irqs`
+//    argument must be the irqstate of the bufcache::lock_,
+//    which must be locked. This can block if there isn't any
+//    entry available (i.e., unreferenced and non-dirty entries).
+size_t bufcache::evict_lru(irqstate& irqs) {
     assert(lock_.is_locked());
 
     // only evict when buffer cache is full
     assert(lru_stack[ne - 1] >= 0);
 
     int ei;
-    while(true) {
-        // look for lru entry with zero ref count
-        for(int i = ne - 1; i >= 0; i--) {
-            ei = lru_stack[i];
-            irqstate eirqs = e_[ei].lock_.lock();
-            // if found, reset bufcache entry and lru_stack slot, and return slot
-            if(!e_[ei].ref_) {
-                e_[ei].clear();
-                lru_stack[i] = -1;
-                e_[ei].lock_.unlock(eirqs);
-                return ei;
-            }
+    irqstate eirqs;
+    // This won't actually block if an entry is found right away.
+    // Otherwise, it will block until an entry is available.
+    waiter().block_until(evict_wq_, [&] () {
+        ei = get_lru(eirqs);
+        if(ei != -1) {
+            // get_lru locked the entry, so this is safe
+            e_[ei].clear();
+            lru_stack[ei] = -1;
+            e_[ei].lock_.unlock(eirqs);
+            return true; 
         }
+        return false;
+    }, lock_, irqs);
 
-        // couldn't find unreferenced entries
-        return -1;
-    }
+    // ei should be a valid entry by now
+    return ei;
 }
 
 // bufcache::get_disk_entry(bn, cleaner)
@@ -105,12 +132,9 @@ bcentry* bufcache::get_disk_entry(chkfs::blocknum_t bn,
         if (i == ne) {
             // if cache is full, evict lru entry
             if (empty_slot == size_t(-1)) {
-                empty_slot = evict_lru();
-                if(empty_slot == size_t(-1)) {
-                    log_printf("bufcache: failed to evict lru entry to store block %u\n", bn);
-                    lock_.unlock(irqs);
-                    return nullptr;
-                }
+                // this may block
+                empty_slot = evict_lru(irqs);
+                assert(empty_slot != size_t(-1));
             }
             i = empty_slot;
         }
@@ -199,6 +223,10 @@ void bcentry::put() {
     spinlock_guard guard(lock_);
     assert(ref_ > 0);
     --ref_;
+    // if possible, wake processes waiting for avaialable bufcache entry to evict
+    if(!ref_ && estate_ != bcentry::es_dirty) {
+        bufcache::evict_wq_.wake_all();
+    }
 }
 
 
@@ -220,8 +248,10 @@ void bcentry::get_write() {
 void bcentry::put_write(bool mark_dirty) {
     if(mark_dirty) {
         spinlock_guard g(lock_);
-        estate_ = es_dirty;
-        dirty_list_.push_front(this);
+        if(estate_ != es_dirty) {
+            estate_ = es_dirty;
+            dirty_list_.push_front(this);
+        }   
     }
     write_ref_.store(0);
     write_ref_wq_.wake_all();
@@ -235,8 +265,26 @@ void bcentry::put_write(bool mark_dirty) {
 //    and data blocks are unreferenced.
 
 int bufcache::sync(int drop) {
-    // write dirty buffers to disk
-    // Your code here!
+    if(!sata_disk) return E_IO;
+
+    // save dirty list state
+    list<bcentry, &bcentry::link_> dirty_list;
+    dirty_list.swap(bcentry::dirty_list_);
+    bcentry::dirty_list_.reset();
+
+    // write dirty entries to disk
+    while(bcentry *e = dirty_list.pop_front()) {
+        e->get_write();
+        sata_disk->write(e->buf_, chkfs::blocksize, e->bn_ * chkfs::blocksize);
+        irqstate eirqs = e->lock_.lock();
+        e->estate_ = bcentry::es_clean;
+        // wake processes waiting for available entries to evict
+        if(!e->ref_) {
+            bufcache::evict_wq_.wake_all();
+        }
+        e->lock_.unlock(eirqs);
+        e->put_write();
+    }
 
     // drop clean buffers if requested
     if (drop > 0) {
@@ -255,6 +303,10 @@ int bufcache::sync(int drop) {
             // actually drop buffer
             if (e_[i].ref_ == 0) {
                 e_[i].clear();
+                // wake processes waiting for available entries to evict
+                if(e_[i].estate_ != bcentry::es_dirty) {
+                    bufcache::evict_wq_.wake_all();
+                }
             }
         }
     }

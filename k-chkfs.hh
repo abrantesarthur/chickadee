@@ -58,6 +58,7 @@ struct bufcache {
 
     spinlock lock_;                  // protects all entries' bn_ and ref_
     wait_queue read_wq_;
+    static wait_queue evict_wq_;
     bcentry e_[ne + 1];             // add extra entry for superblock
     int lru_stack[ne];              // least recently used entries
 
@@ -69,7 +70,8 @@ struct bufcache {
 
     int sync(int drop);
     void mark_mru(int index);       // mark most recently used entry
-    int evict_lru();  // evict least recently used entry
+    size_t evict_lru(irqstate& irqs);   // evict least recently used entry
+    int get_lru(irqstate& eirqs);   // returns the least recently used entry
 
  private:
     static bufcache bc;

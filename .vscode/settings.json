@@ -68,7 +68,8 @@
         "sstream": "cpp",
         "stdexcept": "cpp",
         "streambuf": "cpp",
-        "type_traits": "cpp"
+        "type_traits": "cpp",
+        "__functional_03": "cpp"
     },
     "C_Cpp.errorSquiggles": "Disabled"
 }
