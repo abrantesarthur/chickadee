@@ -14,6 +14,7 @@ struct proc;
 struct yieldstate;
 struct proc_loader;
 struct elf_program;
+struct vnode;
 #define PROC_RUNNABLE 1
 #define PROC_CANARY 0xabcdef
 #define FDS_COUNT 32
@@ -68,7 +69,7 @@ struct __attribute__((aligned(4096))) proc {
     void init_kernel(pid_t pid, void (*f)());
     void init_fd_table();
     
-    int fd_alloc(bool readable, bool writable, int type);
+    int fd_alloc(int type, int flags, vnode* v);
 
     static int load(proc_loader& ld);
 

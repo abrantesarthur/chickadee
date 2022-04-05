@@ -834,17 +834,13 @@ void proc::try_close_pipe(file_descriptor* f) {
 //     allocate a file descriptor if there is an available entry in the fd table.
 //     set its readable_, writable_, and type_ arguments accordingly.
 //     return fd on success and error code on failure
-int proc::fd_alloc(bool readable, bool writable, int type) {
+int proc::fd_alloc(int type, int flags, vnode* v) {
     for(int fd = 3; fd < FDS_COUNT; ++fd) {
         if(!fd_table_[fd]) {
-            file_descriptor* fd_ptr = reinterpret_cast<file_descriptor*>(knew<file_descriptor>());
+            file_descriptor* fd_ptr = knew<file_descriptor>(type, flags, v);
             if(!fd_ptr) {
                 return E_NOMEM;
             }
-            fd_ptr->ref_++;
-            fd_ptr->readable_ = readable;
-            fd_ptr->writable_ = writable;
-            fd_ptr->type_ = type;
             fd_table_[fd] = fd_ptr;
             return fd;
         }
@@ -853,34 +849,33 @@ int proc::fd_alloc(bool readable, bool writable, int type) {
 }
 
 uintptr_t proc::syscall_pipe() {
-    // allocate read and write ends
-    int rfd = fd_alloc(true, false, file_descriptor::pipe_t);
-    if(rfd < 0) {
-        return rfd;
-    }
-    int wfd = fd_alloc(false, true, file_descriptor::pipe_t);
-    if(wfd < 0) {
-        fd_table_[rfd] = nullptr;
-        kfree(fd_table_[rfd]);
-        return wfd;
-    }
-
     // allocate vnode and its bounded buffer
-    bounded_buffer* buf_ = reinterpret_cast<bounded_buffer*>(knew<bounded_buffer>());
-    pipe_vnode* vnode_ = reinterpret_cast<pipe_vnode*>(knew<pipe_vnode>(buf_, 2));
-    if(!vnode_ || !buf_) {
-        kfree(fd_table_[rfd]);
-        fd_table_[rfd] = nullptr;
-        kfree(fd_table_[wfd]);
-        fd_table_[wfd] = nullptr;
-        kfree(vnode_);
-        kfree(buf_);
+    bounded_buffer* buf = knew<bounded_buffer>();
+    if(!buf) {
+        kfree(buf);
+        return E_NOMEM;
+    }
+    pipe_vnode* vnode = knew<pipe_vnode>(buf, 2);
+    if(!vnode) {
+        kfree(vnode);
         return E_NOMEM;
     }
 
-    // point file descriptors to vnode
-    fd_table_[rfd]->vnode_ = vnode_;
-    fd_table_[wfd]->vnode_ = vnode_;
+    // allocate read and write ends
+    int rfd = fd_alloc(file_descriptor::pipe_t, OF_READ, vnode);
+    if(rfd < 0) {
+        kfree(buf);
+        kfree(vnode);
+        return rfd;
+    }
+    int wfd = fd_alloc(file_descriptor::pipe_t, OF_WRITE, vnode);
+    if(wfd < 0) {
+        kfree(fd_table_[rfd]);
+        kfree(buf);
+        kfree(vnode);
+        fd_table_[rfd] = nullptr;
+        return wfd;
+    }
     
     uintptr_t wfd_cast = wfd;
     return (wfd_cast << 32) | rfd;
@@ -1009,27 +1004,33 @@ int proc::syscall_open(const char* pathname, int flags) {
     if(!is_path_valid(this, pathname)) return E_FAULT;
     if(!sata_disk) return E_IO;
 
-    // read file from disk
+    // read file from disk's root directory
     chkfs::inode* ino = chkfsstate::get().lookup_inode(pathname);
     if(!ino) return E_NOENT;
 
-    // allocate file descriptor
-    int fd = fd_alloc(flags & OF_READ, flags & OF_WRITE, file_descriptor::disk_t);
-    if(fd < 0) {
-        ino->put();
-        return fd;
-    }
-    file_descriptor *f = fd_table_[fd];
-
     // allocate disk vnode
-    f->vnode_ = knew<diskfile_vnode>(ino, 1);
-    if(!f->vnode_) {
-        kfree(f);
-        fd_table_[fd] = nullptr;
+    vnode* v = knew<diskfile_vnode>(ino);
+    if(!v) {
         ino->put();
         return E_NOMEM;
     }
     
+    // allocate file descriptor
+    int fd = fd_alloc(file_descriptor::disk_t, flags, v);
+    if(fd < 0) {
+        kfree(v);
+        ino->put();
+        return fd;
+    }
+
+    if(flags & OF_TRUNC && flags & OF_WRITE) {
+        ino->entry()->get_write(); // so entry is marked dirty at release time
+        ino->lock_write();
+        ino->size = 0;
+        ino->unlock_write();
+        ino->entry()->put_write();
+    }
+   
     return fd;
 }
 

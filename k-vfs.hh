@@ -18,7 +18,7 @@ struct vnode {
     spinlock lock_;
     std::atomic<int> ref_;
 
-    vnode(int ref = 0) : ref_(ref) {
+    vnode(int ref = 1) : ref_(ref) {
     }
 
     virtual uintptr_t read(file_descriptor* f, uintptr_t addr, size_t sz) = 0;
@@ -28,7 +28,7 @@ struct vnode {
 struct pipe_vnode : public vnode {
     bounded_buffer* buf_;
 
-    pipe_vnode(bounded_buffer* buf, int ref) : vnode(ref), buf_(buf) {
+    pipe_vnode(bounded_buffer* buf, int ref = 1) : vnode(ref), buf_(buf) {
         assert(buf_);
     }
 
@@ -39,7 +39,7 @@ struct pipe_vnode : public vnode {
 struct memfile_vnode : public vnode {
     memfile* mf_;
 
-    memfile_vnode(memfile* mf, int ref) : vnode(ref), mf_(mf) {
+    memfile_vnode(memfile* mf, int ref = 1) : vnode(ref), mf_(mf) {
         assert(mf);
     }
 
@@ -55,7 +55,7 @@ struct keyboard_console_vnode : public vnode {
 struct diskfile_vnode : public vnode {
     chkfs::inode* ino_;
 
-    diskfile_vnode(chkfs::inode* ino, int ref) :  vnode(ref), ino_(ino) {
+    diskfile_vnode(chkfs::inode* ino, int ref = 1) :  vnode(ref), ino_(ino) {
         assert(ino_);
     }
 
@@ -64,6 +64,14 @@ struct diskfile_vnode : public vnode {
 };
 
 struct file_descriptor {
+    inline file_descriptor(int type, int flags, vnode* v) :
+        ref_(1),
+        readable_(flags & OF_READ),
+        writable_(flags & OF_WRITE),
+        type_(type),
+        vnode_(v) {
+    }
+
     enum fd_t {
         kbd_cons_t,
         memfile_t,

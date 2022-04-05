@@ -251,14 +251,8 @@ void proc::init_fd_table() {
         assert(kbd_cons_vnode);
     }
     for(int fd = 0; fd < 3; ++fd) {
-        fd_table_[fd] = knew<file_descriptor>();
+        fd_table_[fd] = knew<file_descriptor>(file_descriptor::kbd_cons_t, OF_READ | OF_WRITE, kbd_cons_vnode);
         assert(fd_table_[fd]);
-        fd_table_[fd]->readable_ = true;
-        fd_table_[fd]->writable_ = true;
-        ++fd_table_[fd]->ref_;
-        fd_table_[fd]->type_ = file_descriptor::kbd_cons_t;
-        fd_table_[fd]->vnode_ = kbd_cons_vnode;
-        ++kbd_cons_vnode->ref_;
     }
 }
 

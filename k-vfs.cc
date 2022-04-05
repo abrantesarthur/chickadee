@@ -4,6 +4,7 @@
 #include "k-chkfs.hh"
 #include "k-chkfsiter.hh"
 
+
 uintptr_t keyboard_console_vnode::read(file_descriptor* f, uintptr_t addr, size_t sz) {
     auto& kbd = keyboardstate::get();
     auto irqs = kbd.lock_.lock();

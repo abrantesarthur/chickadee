@@ -65,6 +65,7 @@ int bufcache::get_lru(irqstate& eirqs) {
     return -1;
 }
 
+// TODO: test the sh*t out of this
 // bufcache::evict_lru(irqs)
 //    returns the entry of the evicted entry. Its `irqs`
 //    argument must be the irqstate of the bufcache::lock_,
