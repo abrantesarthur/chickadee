@@ -501,6 +501,49 @@ chkfs::inode* chkfsstate::lookup_inode(const char* filename) {
 //    `blocknum >= blocknum_t(E_MINERROR)`.
 
 auto chkfsstate::allocate_extent(unsigned count) -> blocknum_t {
-    // Your code here
-    return E_INVAL;
+    // load superblock into the buffer cache
+    auto& bc = bufcache::get();
+    auto superblock_entry = bc.get_disk_entry(0);
+    assert(superblock_entry);
+    auto& sb = *reinterpret_cast<chkfs::superblock*>
+        (&superblock_entry->buf_[chkfs::superblock_offset]);
+    superblock_entry->put();
+
+    // load free block bitmap into buffer cache
+    bcentry* fbb_entry = bc.get_disk_entry(sb.fbb_bn);
+    
+    fbb_entry->get_write();
+
+    // find a countiguous range of 'count' 1 bits
+    bitset_view fbb_view(reinterpret_cast<uint64_t*>(fbb_entry->buf_),
+        chkfs::bitsperblock);
+
+    size_t bn, curr_bn;
+    bool found_extent;
+    for(bn = sb.data_bn; bn < sb.journal_bn;) {
+        found_extent = true;
+        for(curr_bn = bn; curr_bn < bn + count; ++curr_bn) {
+            if(!fbb_view[curr_bn]) {
+                found_extent = false;
+                break;
+            }
+        }
+        
+        if(found_extent) {
+            for(curr_bn = bn; curr_bn < bn + count; ++curr_bn) {
+                fbb_view[curr_bn] = false;
+            }
+            break;
+        }
+
+        bn = curr_bn + 1;
+    }
+
+    fbb_entry->put_write();
+    fbb_entry->put();
+    if(!found_extent) {
+        return 0;
+    }
+    // return first block number in allocated extent
+    return bn;
 }

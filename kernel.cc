@@ -941,7 +941,6 @@ int proc::syscall_execv(uintptr_t program_name, const char* const* argv, size_t 
     if(!ino) return E_FAULT;
 
     // instantiate a proc_loader with the disk file and pagetable
-    // TODO: something bout loading a disk file makes make run-exececho not work
     diskfile_loader ld(ino, pgtable);
 
     // load program into user-level memory
