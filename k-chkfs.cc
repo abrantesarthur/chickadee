@@ -543,50 +543,63 @@ auto chkfsstate::allocate_extent(unsigned count) -> blocknum_t {
     return bn;
 }
 
+// TODO: extend testwritefs3 to assert that allocating new dirents works!
 chkfs::dirent* chkfsstate::get_empty_dirent() {
     // read root directory
-    auto root_dirino = get_inode(1);
-    chkfs_fileiter it(root_dirino);
-    // TODO: make sure this is unlocked
-    root_dirino->lock_read();
+    auto dirino = get_inode(1);
+    chkfs_fileiter it(dirino);
+
+    dirino->lock_read();
     bcentry* e;
     chkfs::dirent* dirent;
 
     // look for empty directory
-    for(size_t diroff = 0; diroff < root_dirino->size; diroff += blocksize) {
-        if((e = it.find(diroff).get_disk_entry())) {
-            size_t bsz = min(root_dirino->size - diroff, blocksize);
+    for(size_t off = 0; off < dirino->size; off += blocksize) {
+        if((e = it.find(off).get_disk_entry())) {
+            // bytes left in this block
+            size_t sz = min(dirino->size - off, blocksize);
             dirent = reinterpret_cast<chkfs::dirent*>(e->buf_);
-            for(unsigned i = 0; i * sizeof(*dirent) < bsz; ++i, ++dirent) {
+            for(unsigned i = 0; i * sizeof(*dirent) < sz; ++i, ++dirent) {
                 if(!dirent->inum) {
+                    dirino->unlock_read();
                     return dirent;
                 }
             }
             e->put();
-        } else {
-            return nullptr;
         }
     }
 
-    // couldn't find empty dirent: try returning the one at the end of file
-    if(!(root_dirino->size % blocksize)) {
-        // not enough space: extend directory
+    // couldn't find an emtpy dirent in root directory
+
+    // allocate a new block if all blocks within the root directory are full
+    if(!(dirino->size % blocksize)) {
         blocknum_t bn = allocate_extent(1);
-        if(!bn) return nullptr;
+        if(!bn) {
+            dirino->unlock_read();
+            dirino->put();
+            return nullptr;
+        }
         it.find(-1).insert(bn, 1);
     } else {
         // the size of a directory must be a multiple of size of dirent
-        assert(root_dirino->size % sizeof(chkfs::dirent) == 0);
+        assert(dirino->size % sizeof(chkfs::dirent) == 0);
     }
 
-    // got to end of file
-    e = it.find(root_dirino->size).get_disk_entry();
-    if(!e) return nullptr;
+    // get last block in the directory
+    e = it.find(dirino->size).get_disk_entry();
+    if(!e) {
+        dirino->unlock_read();
+        dirino->put();
+        return nullptr;   
+    }
 
+    // get last dirent in the block
     size_t bro = it.block_relative_offset();
     dirent = reinterpret_cast<chkfs::dirent*>(&e->buf_[bro]);
-    root_dirino->unlock_read();
-    root_dirino->put();
+    assert(!dirent->inum);
+
+    dirino->unlock_read();
+    dirino->put();
 
     return dirent;
 }

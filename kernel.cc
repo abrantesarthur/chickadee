@@ -1014,6 +1014,7 @@ int proc::syscall_open(const char* pathname, int flags) {
     chkfs::inode* ino = chkfsstate::get().lookup_inode(pathname);
     if(!ino) {  // file doesn't exist
         if(flags & OF_CREATE && flags & OF_WRITE) {
+            console_printf("yo!\n");
             // get emtpy root directory
             auto& fs = chkfsstate::get();
             chkfs::dirent* dirent = fs.get_empty_dirent();
@@ -1038,7 +1039,6 @@ int proc::syscall_open(const char* pathname, int flags) {
         }
     } 
 
-
     // allocate disk vnode
     vnode* v = knew<diskfile_vnode>(ino);
     if(!v) {
@@ -1056,8 +1056,9 @@ int proc::syscall_open(const char* pathname, int flags) {
 
     if(flags & OF_TRUNC && flags & OF_WRITE) {
         ino->lock_write();
+        ino->entry()->get_write();
         ino->size = 0;
-        ino->entry()->mark_dirty();
+        ino->entry()->put_write();
         ino->unlock_write();
     }
    
