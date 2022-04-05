@@ -1014,26 +1014,8 @@ int proc::syscall_open(const char* pathname, int flags) {
     chkfs::inode* ino = chkfsstate::get().lookup_inode(pathname);
     if(!ino) {  // file doesn't exist
         if(flags & OF_CREATE && flags & OF_WRITE) {
-            console_printf("yo!\n");
-            // get emtpy root directory
-            auto& fs = chkfsstate::get();
-            chkfs::dirent* dirent = fs.get_empty_dirent();
-            if(!dirent) return E_AGAIN;
-
-            // allocate inode
-            auto inum = fs.allocate_inode();
-            if(inum < 0) return E_AGAIN;
-            ino = fs.get_inode(inum);
-
-            // store inum and filename in dirent
-            dirent->inum = inum;
-            memcpy(dirent->name, pathname, chkfs::maxnamelen + 1);
-
-            ino->lock_write();
-            ino->type = chkfs::type_regular;
-            ino->size = 0;
-            ino->nlink = 1;
-            ino->unlock_write();
+            ino = chkfsstate::get().create_file(pathname);
+            if(!ino) return E_AGAIN;
         } else {
             return E_NOENT;
         }

@@ -364,6 +364,18 @@ bool inode::has_write_lock() const {
     return mlock.load(std::memory_order_relaxed) == mlock_t(-1);
 }
 
+// inode::is_free()
+//    returns true iff nlink field is zero (i.e., there are
+//    no hard links to the file) and no program has a reference
+//    to the buffer storing the inode
+// TODO: add requirement that entry()->ref must be 0
+// (read file system documentation at Inode size section to know more)
+bool inode::is_free() {
+    // access to nlink must be protected
+    assert(has_write_lock());     
+    return !nlink;
+}
+
 }
 
 
@@ -604,7 +616,7 @@ chkfs::dirent* chkfsstate::get_empty_dirent() {
     return dirent;
 }
 
-chkfs::inum_t chkfsstate::allocate_inode() {
+chkfs::inode* chkfsstate::create_file(const char* pathname, uint32_t type) {
     // load superblock
     auto& bc = bufcache::get();
     auto sb_entry = bufcache::get().get_disk_entry(0);
@@ -621,16 +633,35 @@ chkfs::inum_t chkfsstate::allocate_inode() {
         if((ino_entry = bc.get_disk_entry(bn, clean_inode_block))) {
             size_t ino_off = (inum % chkfs::inodesperblock) * sizeof(inode);
             ino = reinterpret_cast<chkfs::inode*>(&ino_entry->buf_[ino_off]);
-            ino->lock_read();
-            if(!ino->nlink) {
-                ino->unlock_read(); 
-                return inum;
+            ino->lock_write();
+            if(ino->is_free()) {
+                // TODO: dirent->put() is never called
+                // get empty dirent in root directory
+                auto& fs = chkfsstate::get();
+                chkfs::dirent* dirent = fs.get_empty_dirent();
+                if(!dirent) {
+                    ino->unlock_write();
+                    ino_entry->put();
+                    return nullptr;
+                }
+
+                // store inum and filename in dirent
+                dirent->inum = inum;
+                memcpy(dirent->name, pathname, chkfs::maxnamelen + 1);
+
+                // allocate inode
+                ino->nlink = 1;
+                ino->type = type;
+                ino->size = 0;
+                ino->unlock_write(); 
+                return ino;
             }
-            ino->unlock_read();
+            ino->unlock_write();
+            ino_entry->put();
         } else {
-            return -1;
+            return nullptr;
         }
     }
-    return -1;
+    return nullptr;
 }
 

@@ -81,6 +81,7 @@ struct inode {
     void lock_write();
     void unlock_write();
     bool has_write_lock() const;
+    bool is_free();
 #endif
 };
 

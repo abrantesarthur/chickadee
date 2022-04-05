@@ -101,7 +101,7 @@ struct chkfsstate {
     inode* lookup_inode(const char* name);
 
     blocknum_t allocate_extent(unsigned count = 1);
-    chkfs::inum_t allocate_inode();
+    chkfs::inode* create_file(const char* pathname, uint32_t type = chkfs::type_regular);
 
     chkfs::dirent* get_empty_dirent();
 
