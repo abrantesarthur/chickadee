@@ -667,8 +667,7 @@ sb_entry->put();
             ino->lock_write();
             if(ino->is_free()) {
                 // get empty dirent in root directory
-                auto& fs = chkfsstate::get();
-                if(fs.link_inode(inum, pathname) < 0) {
+                if(chkfsstate::get().link_inode(inum, pathname) < 0) {
                     ino->unlock_write();
                     ino_entry->put();
                     return nullptr;
