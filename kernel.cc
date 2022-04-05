@@ -1040,7 +1040,7 @@ int proc::syscall_open(const char* pathname, int flags) {
 
 
     // allocate disk vnode
-    vnode* v = knew<diskfile_vnode>(ino, round_up(ino->size, chkfs::blocksize));
+    vnode* v = knew<diskfile_vnode>(ino);
     if(!v) {
         ino->put();
         return E_NOMEM;
@@ -1064,8 +1064,13 @@ int proc::syscall_open(const char* pathname, int flags) {
     return fd;
 }
 
+// TODO: write a test that forks a child that seeks a disk file whereas the 
+// parent writes to it to make sure that the file_descriptor wpos_ and rpos_ 
+// are correclty synchronized
 ssize_t proc::syscall_lseek(int fd, off_t off, int whence) {
     file_descriptor *f = fd_table_[fd];
+    // synchronize access to file descriptor's wpos_ and rpos_
+    spinlock_guard guard(f->lock_);
     if(!f || !f->vnode_) {
         return E_BADF;
     }

@@ -271,16 +271,16 @@ int bufcache::sync(int drop) {
 
     // write dirty entries to disk
     while(bcentry *e = dirty_list.pop_front()) {
+        // prevent buffer modifications while it's in flight to the disk
         e->get_write();
         sata_disk->write(e->buf_, chkfs::blocksize, e->bn_ * chkfs::blocksize);
+        e->put_write(false);
+        
         irqstate eirqs = e->lock_.lock();
         e->estate_ = bcentry::es_clean;
         // wake processes waiting for available entries to evict
-        if(!e->ref_) {
-            bufcache::evict_wq_.wake_all();
-        }
+        if(!e->ref_) bufcache::evict_wq_.wake_all();
         e->lock_.unlock(eirqs);
-        e->put_write(false);
     }
 
     // drop clean buffers if requested
@@ -301,9 +301,7 @@ int bufcache::sync(int drop) {
             if (e_[i].ref_ == 0) {
                 e_[i].clear();
                 // wake processes waiting for available entries to evict
-                if(e_[i].estate_ != bcentry::es_dirty) {
-                    bufcache::evict_wq_.wake_all();
-                }
+                bufcache::evict_wq_.wake_all();
             }
         }
     }
@@ -508,6 +506,7 @@ auto chkfsstate::allocate_extent(unsigned count) -> blocknum_t {
     // load free block bitmap into buffer cache
     bcentry* fbb_entry = bc.get_disk_entry(sb.fbb_bn);
     
+    // TODO: understand why we are getting a write reference
     fbb_entry->get_write();
 
     // find a countiguous range of 'count' 1 bits
@@ -548,6 +547,7 @@ chkfs::dirent* chkfsstate::get_empty_dirent() {
     // read root directory
     auto root_dirino = get_inode(1);
     chkfs_fileiter it(root_dirino);
+    // TODO: make sure this is unlocked
     root_dirino->lock_read();
     bcentry* e;
     chkfs::dirent* dirent;

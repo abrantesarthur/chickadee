@@ -54,11 +54,9 @@ struct keyboard_console_vnode : public vnode {
 
 struct diskfile_vnode : public vnode {
     chkfs::inode* ino_;
-    // number of blocks allocated times chkfs::blocksize
-    size_t allocated_sz_;
 
-    diskfile_vnode(chkfs::inode* ino, size_t allocated_sz, int ref = 1) :
-        vnode(ref), ino_(ino), allocated_sz_(allocated_sz) {
+    diskfile_vnode(chkfs::inode* ino, int ref = 1) :
+        vnode(ref), ino_(ino) {
         assert(ino_);
     }
 
@@ -81,7 +79,7 @@ struct file_descriptor {
         pipe_t,
         disk_t
     };
-    spinlock lock_;
+    spinlock lock_;                         // protects access to ref_
     std::atomic<int> ref_ = 0;              // number of processes referencing this
     std::atomic<off_t> rpos_ = 0;           // current read position
     std::atomic<off_t> wpos_ = 0;           // current write position

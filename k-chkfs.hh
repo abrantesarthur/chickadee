@@ -18,7 +18,7 @@ struct bcentry {
 
     std::atomic<int> estate_ = es_empty;
 
-    spinlock lock_;                      // protects most `estate_` changes
+    spinlock lock_;                      // protects ref_ and most `estate_` changes
     blocknum_t bn_;                      // disk block number (unless empty)
     unsigned ref_ = 0;                   // reference count
     unsigned char* buf_ = nullptr;       // memory buffer used for entry
@@ -57,7 +57,7 @@ struct bufcache {
     // TODO: increase number of entries
     static constexpr size_t ne = 100;
 
-    spinlock lock_;                  // protects all entries' bn_ and ref_
+    spinlock lock_;                  // protects lru_stack and all entries' bn_ and ref_
     wait_queue read_wq_;
     static wait_queue evict_wq_;
     bcentry e_[ne + 1];             // add extra entry for superblock
