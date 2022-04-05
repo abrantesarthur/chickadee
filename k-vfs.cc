@@ -248,7 +248,7 @@ uintptr_t diskfile_vnode::write(file_descriptor *f, uintptr_t addr, size_t sz) {
 
     // extend file if necessary
     uint32_t allocated_sz = round_up(ino_->size, chkfs::blocksize);
-    if(sz > size_t(allocated_sz - f->wpos_)) {
+    if(allocated_sz < size_t(f->wpos_ + sz)) {
         // calculate number of blocks to allocate
         size_t alloc_sz = f->wpos_ + sz - allocated_sz;
         unsigned nbs = round_up(alloc_sz, chkfs::blocksize) / chkfs::blocksize;
@@ -260,12 +260,9 @@ uintptr_t diskfile_vnode::write(file_descriptor *f, uintptr_t addr, size_t sz) {
         // append extent to the end of the file
         it.find(-1).insert(bn, nbs);
     }
-    
-    // save initial wpos to correclty update file size later
-    size_t initial_wpos_ = f->wpos_;
 
     // update file true size, if necessary
-    if(sz > size_t(ino_->size - f->wpos_)) {
+    if(ino_->size < size_t(f->wpos_ + sz)) {
         // sync writing to buffer cache (ino_->size is in buffer cache)
         ino_->entry()->get_write();
         ino_->size = f->wpos_ + sz;
@@ -295,14 +292,6 @@ uintptr_t diskfile_vnode::write(file_descriptor *f, uintptr_t addr, size_t sz) {
         } else {
             break;
         }
-    }
-
-    // update file size correclty
-    if(ino_->size != initial_wpos_ + nwritten) {
-        // sync writing to buffer cache
-        ino_->entry()->get_write();
-        ino_->size = initial_wpos_ + nwritten;
-        ino_->entry()->put_write();
     }
 
     ino_->unlock_write();
