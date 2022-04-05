@@ -556,7 +556,7 @@ auto chkfsstate::allocate_extent(unsigned count) -> blocknum_t {
 }
 
 // TODO: extend testwritefs3 to assert that allocating new dirents works!
-chkfs::dirent* chkfsstate::get_empty_dirent() {
+chkfs::dirent* chkfsstate::get_empty_dirent(chkfs::inum_t inum, const char* pathname) {
     // read root directory
     auto dirino = get_inode(1);
     chkfs_fileiter it(dirino);
@@ -572,7 +572,11 @@ chkfs::dirent* chkfsstate::get_empty_dirent() {
             size_t sz = min(dirino->size - off, blocksize);
             dirent = reinterpret_cast<chkfs::dirent*>(e->buf_);
             for(unsigned i = 0; i * sizeof(*dirent) < sz; ++i, ++dirent) {
-                if(!dirent->inum) {
+                // TODO: need to lock write and mark dirty and put
+                if(!dirent->inum) { // add file to dirent
+                    assert(memcmp(dirent->name, pathname, chkfs::maxnamelen) == 0);
+                    dirent->inum = inum;
+                    memcpy(dirent->name, pathname, chkfs::maxnamelen + 1);
                     dirino->unlock_read();
                     return dirent;
                 }
@@ -609,6 +613,9 @@ chkfs::dirent* chkfsstate::get_empty_dirent() {
     size_t bro = it.block_relative_offset();
     dirent = reinterpret_cast<chkfs::dirent*>(&e->buf_[bro]);
     assert(!dirent->inum);
+    assert(memcmp(dirent->name, pathname, chkfs::maxnamelen) == 0);
+    dirino->unlock_read();
+
 
     dirino->unlock_read();
     dirino->put();
@@ -616,6 +623,7 @@ chkfs::dirent* chkfsstate::get_empty_dirent() {
     return dirent;
 }
 
+// TODO: comment this
 chkfs::inode* chkfsstate::create_file(const char* pathname, uint32_t type) {
     // load superblock
     auto& bc = bufcache::get();
@@ -638,16 +646,12 @@ chkfs::inode* chkfsstate::create_file(const char* pathname, uint32_t type) {
                 // TODO: dirent->put() is never called
                 // get empty dirent in root directory
                 auto& fs = chkfsstate::get();
-                chkfs::dirent* dirent = fs.get_empty_dirent();
+                chkfs::dirent* dirent = fs.get_empty_dirent(inum, pathname);
                 if(!dirent) {
                     ino->unlock_write();
                     ino_entry->put();
                     return nullptr;
                 }
-
-                // store inum and filename in dirent
-                dirent->inum = inum;
-                memcpy(dirent->name, pathname, chkfs::maxnamelen + 1);
 
                 // allocate inode
                 ino->nlink = 1;

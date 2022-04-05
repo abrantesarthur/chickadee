@@ -103,7 +103,7 @@ struct chkfsstate {
     blocknum_t allocate_extent(unsigned count = 1);
     chkfs::inode* create_file(const char* pathname, uint32_t type = chkfs::type_regular);
 
-    chkfs::dirent* get_empty_dirent();
+    chkfs::dirent* get_empty_dirent(chkfs::inum_t inum, const chart* pathname);
 
 
 
