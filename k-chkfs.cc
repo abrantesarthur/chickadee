@@ -543,3 +543,81 @@ auto chkfsstate::allocate_extent(unsigned count) -> blocknum_t {
     // return first block number in allocated extent
     return bn;
 }
+
+chkfs::dirent* chkfsstate::get_empty_dirent() {
+    // read root directory
+    auto root_dirino = get_inode(1);
+    chkfs_fileiter it(root_dirino);
+    root_dirino->lock_read();
+    bcentry* e;
+    chkfs::dirent* dirent;
+
+    // look for empty directory
+    for(size_t diroff = 0; diroff < root_dirino->size; diroff += blocksize) {
+        if((e = it.find(diroff).get_disk_entry())) {
+            size_t bsz = min(root_dirino->size - diroff, blocksize);
+            dirent = reinterpret_cast<chkfs::dirent*>(e->buf_);
+            for(unsigned i = 0; i * sizeof(*dirent) < bsz; ++i, ++dirent) {
+                if(!dirent->inum) {
+                    return dirent;
+                }
+            }
+            e->put();
+        } else {
+            return nullptr;
+        }
+    }
+
+    // couldn't find empty dirent: try returning the one at the end of file
+    if(!(root_dirino->size % blocksize)) {
+        // not enough space: extend directory
+        blocknum_t bn = allocate_extent(1);
+        if(!bn) return nullptr;
+        it.find(-1).insert(bn, 1);
+    } else {
+        // the size of a directory must be a multiple of size of dirent
+        assert(root_dirino->size % sizeof(chkfs::dirent) == 0);
+    }
+
+    // got to end of file
+    e = it.find(root_dirino->size).get_disk_entry();
+    if(!e) return nullptr;
+
+    size_t bro = it.block_relative_offset();
+    dirent = reinterpret_cast<chkfs::dirent*>(&e->buf_[bro]);
+    root_dirino->unlock_read();
+    root_dirino->put();
+
+    return dirent;
+}
+
+chkfs::inum_t chkfsstate::allocate_inode() {
+    // load superblock
+    auto& bc = bufcache::get();
+    auto sb_entry = bufcache::get().get_disk_entry(0);
+    assert(sb_entry);
+    auto& sb = *reinterpret_cast<chkfs::superblock*>
+            (&sb_entry->buf_[chkfs::superblock_offset]);
+    sb_entry->put();
+
+    inode* ino = nullptr;
+    bcentry* ino_entry = nullptr;
+
+    for(chkfs::inum_t inum = 1; inum < sb.ninodes; ++inum) {
+        auto bn = sb.inode_bn + inum / chkfs::inodesperblock;
+        if((ino_entry = bc.get_disk_entry(bn, clean_inode_block))) {
+            size_t ino_off = (inum % chkfs::inodesperblock) * sizeof(inode);
+            ino = reinterpret_cast<chkfs::inode*>(&ino_entry->buf_[ino_off]);
+            ino->lock_read();
+            if(!ino->nlink) {
+                ino->unlock_read(); 
+                return inum;
+            }
+            ino->unlock_read();
+        } else {
+            return -1;
+        }
+    }
+    return -1;
+}
+
