@@ -11,3 +11,5 @@
 ## file system
 
 - increase number of blocks in file system. This should impact multiple constants and functions such as `allocate_extent`
+
+- what if a child seeks at the same time that its parent writes to a disk file? Is the f->wpos\* and f->rpos fields going to be synchronized?

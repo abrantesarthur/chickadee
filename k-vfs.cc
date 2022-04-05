@@ -200,10 +200,6 @@ uintptr_t memfile_vnode::write(file_descriptor *f, uintptr_t addr, size_t sz) {
 uintptr_t diskfile_vnode::read(file_descriptor *f, uintptr_t addr, size_t sz) {
     if(!f->readable_) return E_BADF;
 
-    // synchronize access to f->wpos_ and f->rpos
-    // for example, a child process may seek concurrently
-    spinlock_guard fd_guard(f->lock_);
-
     // concurrent reads are not allowed
     ino_->lock_read();
     if(!ino_->size) {
@@ -246,16 +242,12 @@ uintptr_t diskfile_vnode::write(file_descriptor *f, uintptr_t addr, size_t sz) {
     if(!sata_disk) return E_IO;
     if(!f->writable_) return E_BADF;
 
-    // synchronize access to f->wpos_ and f->rpos
-    // for example, a child process may seek concurrently
-    spinlock_guard fd_guard(f->lock_);
-
     // synchronize access to inode's size and data references
     ino_->lock_write();
     chkfs_fileiter it(ino_);
 
     // extend file if necessary
-    uint32_t allocated_sz = round_up(ino->size, chkfs::blocksize);
+    uint32_t allocated_sz = round_up(ino_->size, chkfs::blocksize);
     if(sz > size_t(allocated_sz - f->wpos_)) {
         // calculate number of blocks to allocate
         size_t alloc_sz = f->wpos_ + sz - allocated_sz;
@@ -274,7 +266,7 @@ uintptr_t diskfile_vnode::write(file_descriptor *f, uintptr_t addr, size_t sz) {
 
     // update file true size, if necessary
     if(sz > size_t(ino_->size - f->wpos_)) {
-        // sync writing to buffer cache
+        // sync writing to buffer cache (ino_->size is in buffer cache)
         ino_->entry()->get_write();
         ino_->size = f->wpos_ + sz;
         ino_->entry()->put_write();

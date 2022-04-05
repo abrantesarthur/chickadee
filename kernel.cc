@@ -1069,8 +1069,7 @@ int proc::syscall_open(const char* pathname, int flags) {
 // are correclty synchronized
 ssize_t proc::syscall_lseek(int fd, off_t off, int whence) {
     file_descriptor *f = fd_table_[fd];
-    // synchronize access to file descriptor's wpos_ and rpos_
-    spinlock_guard guard(f->lock_);
+
     if(!f || !f->vnode_) {
         return E_BADF;
     }

@@ -276,11 +276,11 @@ int bufcache::sync(int drop) {
         sata_disk->write(e->buf_, chkfs::blocksize, e->bn_ * chkfs::blocksize);
         e->put_write(false);
         
-        irqstate eirqs = e->lock_.lock();
+        e->lock_.lock_noirq();
         e->estate_ = bcentry::es_clean;
         // wake processes waiting for available entries to evict
         if(!e->ref_) bufcache::evict_wq_.wake_all();
-        e->lock_.unlock(eirqs);
+        e->lock_.unlock_noirq();
     }
 
     // drop clean buffers if requested
@@ -506,13 +506,12 @@ auto chkfsstate::allocate_extent(unsigned count) -> blocknum_t {
     // load free block bitmap into buffer cache
     bcentry* fbb_entry = bc.get_disk_entry(sb.fbb_bn);
     
-    // TODO: understand why we are getting a write reference
+    // synchronize updates to the fbb entry in the buffer cache
     fbb_entry->get_write();
 
-    // find a countiguous range of 'count' 1 bits
+    // look for a countiguous range of 'count' 1 bits in fbb_view
     bitset_view fbb_view(reinterpret_cast<uint64_t*>(fbb_entry->buf_),
         chkfs::bitsperblock);
-
     size_t bn, curr_bn;
     bool found_extent;
     for(bn = sb.data_bn; bn < sb.journal_bn;) {
@@ -525,6 +524,7 @@ auto chkfsstate::allocate_extent(unsigned count) -> blocknum_t {
         }
         
         if(found_extent) {
+            // allocate the extent
             for(curr_bn = bn; curr_bn < bn + count; ++curr_bn) {
                 fbb_view[curr_bn] = false;
             }
