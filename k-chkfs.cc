@@ -556,6 +556,11 @@ auto chkfsstate::allocate_extent(unsigned count) -> blocknum_t {
 }
 
 // TODO: extend testwritefs3 to assert that allocating new dirents works!
+// chkfsstate::link_inode(chkfs::inum_t inum, const char* pathname)
+//    links the inode number 'inum' and 'pathname' to a free dirent in
+//    the root directory. If such dirent is not available, it tries allocating
+//    one before linking the inode. Returns 0 on success and a negative
+//    error code on failure.
 int chkfsstate::link_inode(chkfs::inum_t inum, const char* pathname) {
     // read root directory
     auto dirino = get_inode(1);
@@ -582,8 +587,9 @@ int chkfsstate::link_inode(chkfs::inum_t inum, const char* pathname) {
                     // release write ref, effectivelly marking buffer dirty
                     e->put_write();
 
-                    dirino->unlock_read();
                     e->put();
+                    dirino->unlock_read();
+                    dirino->put();
                     return 0;
                 }
             }
@@ -612,7 +618,6 @@ int chkfsstate::link_inode(chkfs::inum_t inum, const char* pathname) {
     if(!e) {
         dirino->unlock_read();
         dirino->put();
-        e->put();
         return E_AGAIN;   
     }
 
@@ -630,13 +635,17 @@ int chkfsstate::link_inode(chkfs::inum_t inum, const char* pathname) {
     // release write ref, effectivelly marking buffer dirty
     e->put_write();
 
+    e->put();
     dirino->unlock_read();
     dirino->put();
-    e->put();
     return 0;
 }
 
-// TODO: comment this
+// chkfsstate::create_file(const char* pathname, uint32_t type)
+//    looks for a free inode in the filesystem. If found, links this inode
+//    to the root directory and returns a link to its buffer cache entry. 
+//    Otherwise, retulrs nullptr. The caller is responsible for releasing
+//    its buffer reference.
 chkfs::inode* chkfsstate::create_file(const char* pathname, uint32_t type) {
     // load superblock
     auto& bc = bufcache::get();
