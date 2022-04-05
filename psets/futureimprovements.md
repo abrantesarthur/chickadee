@@ -5,3 +5,7 @@
 ## scheuduler
 
 - implement a better scheduline algorithm. Look at Linux's Completely Fair Algorithm (Lecture 17) for inspiration
+
+## file system
+
+- increase number of blocks in file system. This should impact multiple constants and functions such as `allocate_extent`

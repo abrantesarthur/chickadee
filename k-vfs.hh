@@ -54,8 +54,11 @@ struct keyboard_console_vnode : public vnode {
 
 struct diskfile_vnode : public vnode {
     chkfs::inode* ino_;
+    // number of blocks allocated times chkfs::blocksize
+    size_t allocated_sz_;
 
-    diskfile_vnode(chkfs::inode* ino, int ref = 1) :  vnode(ref), ino_(ino) {
+    diskfile_vnode(chkfs::inode* ino, size_t allocated_sz, int ref = 1) :
+        vnode(ref), ino_(ino), allocated_sz_(allocated_sz) {
         assert(ino_);
     }
 
@@ -79,12 +82,12 @@ struct file_descriptor {
         disk_t
     };
     spinlock lock_;
-    std::atomic<int> ref_ = 0;       // number of processes referencing this
-    std::atomic<off_t> rpos_ = 0;   // current read position
-    std::atomic<off_t> wpos_ = 0;   // current write position
-    bool readable_ = false;         // whether the file is readable
-    bool writable_ = false;         // whether the file is writables
-    int type_;                      // the fd_t of this file descriptor
+    std::atomic<int> ref_ = 0;              // number of processes referencing this
+    std::atomic<off_t> rpos_ = 0;           // current read position
+    std::atomic<off_t> wpos_ = 0;           // current write position
+    bool readable_ = false;                 // whether the file is readable
+    bool writable_ = false;                 // whether the file is writables
+    int type_;                              // the fd_t of this file descriptor
     vnode* vnode_ = nullptr;
 };
 

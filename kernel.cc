@@ -1015,7 +1015,7 @@ int proc::syscall_open(const char* pathname, int flags) {
     if(!ino) return E_NOENT;
 
     // allocate disk vnode
-    vnode* v = knew<diskfile_vnode>(ino);
+    vnode* v = knew<diskfile_vnode>(ino, round_up(ino->size, chkfs::blocksize));
     if(!v) {
         ino->put();
         return E_NOMEM;
@@ -1030,11 +1030,10 @@ int proc::syscall_open(const char* pathname, int flags) {
     }
 
     if(flags & OF_TRUNC && flags & OF_WRITE) {
-        ino->entry()->get_write(); // so entry is marked dirty at release time
         ino->lock_write();
         ino->size = 0;
+        ino->entry()->mark_dirty();
         ino->unlock_write();
-        ino->entry()->put_write(); // mark entry as dirty
     }
    
     return fd;

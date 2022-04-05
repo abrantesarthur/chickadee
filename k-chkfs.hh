@@ -43,6 +43,7 @@ struct bcentry {
     // obtain/release a write reference to this entry
     void get_write();
     void put_write(bool mark_dirty = true);
+    void mark_dirty();
 
 
     // internal functions
@@ -70,8 +71,7 @@ struct bufcache {
 
     int sync(int drop);
     void mark_mru(int index);       // mark most recently used entry
-    size_t evict_lru(irqstate& irqs);   // evict least recently used entry
-    int get_lru(irqstate& eirqs);   // returns the least recently used entry
+    int evict_lru(irqstate& irqs);   // evict least recently used entry
 
  private:
     static bufcache bc;

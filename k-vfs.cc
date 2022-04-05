@@ -243,22 +243,38 @@ uintptr_t diskfile_vnode::write(file_descriptor *f, uintptr_t addr, size_t sz) {
     if(!f->writable_) return E_BADF;
 
     // concurrent writes are not allowed
-    // TODO: can we make lock_write and get_write through one function call?
     ino_->lock_write();
+    chkfs_fileiter it(ino_);
 
-    // TODO: mark ino_->entry() as dirty, since we modified ino_->size
+    // extend file if necessary
+    diskfile_vnode* v = reinterpret_cast<diskfile_vnode*>(f->vnode_);
+    if(sz > size_t(v->allocated_sz_ - f->wpos_)) {
+        // calculate number of blocks to allocate
+        size_t alloc_sz = f->wpos_ + sz - v->allocated_sz_;
+        unsigned nbs = round_up(alloc_sz, chkfs::blocksize);
 
+        // allocate extent and get its first block number
+        auto& fs = chkfsstate::get();
+        chkfs::blocknum_t bn = fs.allocate_extent(nbs);
+
+        // append extent to the end of the file
+        it.find(-1).insert(bn, nbs);
+
+        // update allocated size
+        v->allocated_sz_ += nbs * chkfs::blocksize;
+    }
+    
     // save initial wpos to correclty update file size later
     size_t initial_wpos_ = f->wpos_;
 
-    // make initial size update, if necessary
-    if(ino_->size < f->wpos_ + sz) {
+    // update file true size, if necessary
+    if(sz > size_t(ino_->size - f->wpos_)) {
         ino_->size = f->wpos_ + sz;
     }
 
-    chkfs_fileiter it(ino_);
     size_t nwritten = 0;
     unsigned char* buf = reinterpret_cast<unsigned char*>(addr);
+    
     while(nwritten < sz) {
         if(bcentry* e = it.find(f->wpos_).get_disk_entry()) {
             e->get_write();
@@ -286,6 +302,7 @@ uintptr_t diskfile_vnode::write(file_descriptor *f, uintptr_t addr, size_t sz) {
         ino_->size = initial_wpos_ + nwritten;
     }
 
+    ino_->entry()->mark_dirty();
     ino_->unlock_write();
     return nwritten;
 }

@@ -42,59 +42,46 @@ void bufcache::mark_mru(int ei) {
     lru_stack[0] = ei;
 }
 
-// bufcache::get_lru()
-//    returns the buffer cache index of the least recently
-//    used entry that is unreferenced and not dirty, or -1
-//    if not found. If found an entry, it locks it and stores
-//    the irqstate in '&eirqs'
-int bufcache::get_lru(irqstate& eirqs) {
-    assert(lock_.is_locked());
 
-    int ei;
-    // look for lru, unreferenced, and non-dirty entry
-    for(int i = ne - 1; i >= 0; i--) {
-        ei = lru_stack[i];
-        eirqs = e_[ei].lock_.lock();
-        // if found, return entry index
-        if(!e_[ei].ref_ && e_[ei].estate_ != bcentry::es_dirty) {
-            return ei;
-        }
-        e_[ei].lock_.unlock(eirqs);
-    }
-
-    return -1;
-}
-
-// TODO: test the sh*t out of this
 // bufcache::evict_lru(irqs)
-//    returns the entry of the evicted entry. Its `irqs`
-//    argument must be the irqstate of the bufcache::lock_,
-//    which must be locked. This can block if there isn't any
-//    entry available (i.e., unreferenced and non-dirty entries).
-size_t bufcache::evict_lru(irqstate& irqs) {
+//    returns the entry of the evicted entry.
+int bufcache::evict_lru(irqstate& irqs) {
     assert(lock_.is_locked());
 
     // only evict when buffer cache is full
     assert(lru_stack[ne - 1] >= 0);
 
-    int ei;
-    irqstate eirqs;
-    // This won't actually block if an entry is found right away.
-    // Otherwise, it will block until an entry is available.
-    waiter().block_until(evict_wq_, [&] () {
-        ei = get_lru(eirqs);
-        if(ei != -1) {
-            // get_lru locked the entry, so this is safe
-            e_[ei].clear();
-            lru_stack[ei] = -1;
-            e_[ei].lock_.unlock(eirqs);
-            return true; 
-        }
-        return false;
-    }, lock_, irqs);
+    int bci;
+    bool observed_unreferenced_dirty = false;
 
-    // ei should be a valid entry by now
-    return ei;
+    while(true) {
+        // look for lru entry with a zero ref count
+        for(int i = ne - 1; i >= 0; --i) {
+            bci = lru_stack[i];
+            irqstate eirqs = e_[bci].lock_.lock();
+            if(!e_[bci].ref_) {
+                if(e_[bci].estate_ != bcentry::es_dirty) {
+                    e_[bci].clear();
+                    lru_stack[i] = -1;
+                    e_[bci].lock_.unlock(eirqs);
+                    return bci;
+                } else {
+                    observed_unreferenced_dirty = true;
+                }
+            }
+            e_[bci].lock_.unlock(eirqs);
+        }
+
+        if(observed_unreferenced_dirty) {
+            lock_.unlock(irqs);
+            sync(1);
+            irqs = lock_.lock();
+            // try again
+        } else {
+            // couldn't evict any entry
+            return -1;
+        }
+    }
 }
 
 // bufcache::get_disk_entry(bn, cleaner)
@@ -135,7 +122,11 @@ bcentry* bufcache::get_disk_entry(chkfs::blocknum_t bn,
             if (empty_slot == size_t(-1)) {
                 // this may block
                 empty_slot = evict_lru(irqs);
-                assert(empty_slot != size_t(-1));
+                if(empty_slot == size_t(-1)) {
+                    // eviction failed
+                    lock_.unlock(irqs);
+                    return nullptr;
+                }
             }
             i = empty_slot;
         }
@@ -242,20 +233,25 @@ void bcentry::get_write() {
 }
 
 
-// bcentry::put_write()
+// bcentry::put_write(md)
 //    Releases a write reference for this entry, and 
 //    mark it as dirty, if requested.
 
-void bcentry::put_write(bool mark_dirty) {
-    if(mark_dirty) {
-        spinlock_guard g(lock_);
-        if(estate_ != es_dirty) {
-            estate_ = es_dirty;
-            dirty_list_.push_front(this);
-        }   
-    }
+void bcentry::put_write(bool md) {
+    if(md) mark_dirty();
     write_ref_.store(0);
     write_ref_wq_.wake_all();
+}
+
+
+// bcentry::mark_dirty()
+//    Marks this entry as dirty and add it to the dirty list
+void bcentry::mark_dirty() {
+    spinlock_guard g(lock_);
+    if(estate_ != es_dirty) {
+        estate_ = es_dirty;
+        dirty_list_.push_front(this);
+    }  
 }
 
 
