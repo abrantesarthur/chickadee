@@ -284,7 +284,7 @@ int bufcache::sync(int drop) {
             bufcache::evict_wq_.wake_all();
         }
         e->lock_.unlock(eirqs);
-        e->put_write();
+        e->put_write(false);
     }
 
     // drop clean buffers if requested

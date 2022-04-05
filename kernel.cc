@@ -363,6 +363,13 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
             return syscall_open(pathname, flags);
         }
 
+        case SYSCALL_LSEEK: {
+            int fd = regs->reg_rdi;
+            off_t off = regs->reg_rsi;
+            int whence = regs->reg_rdx;
+            return syscall_lseek(fd, off, whence);
+        }
+
         default:
             // no such system call
             log_printf("%d: no such system call %u\n", id_, regs->reg_rax);
@@ -1028,13 +1035,81 @@ int proc::syscall_open(const char* pathname, int flags) {
         ino->lock_write();
         ino->size = 0;
         ino->unlock_write();
-        ino->entry()->put_write();
+        ino->entry()->put_write(); // mark entry as dirty
     }
    
     return fd;
 }
 
+ssize_t proc::syscall_lseek(int fd, off_t off, int whence) {
+    file_descriptor *f = fd_table_[fd];
+    if(!f || !f->vnode_) {
+        return E_BADF;
+    }
 
+    if(f->type_ != file_descriptor::disk_t && f->type_ != file_descriptor::memfile_t) {
+        return E_SPIPE;
+    }
+
+    size_t fsz;
+    diskfile_vnode* dv = nullptr;
+    memfile_vnode* mv = nullptr;
+
+    if(f->type_ == file_descriptor::disk_t) {
+        dv = reinterpret_cast<diskfile_vnode*>(f->vnode_);
+        assert(dv && dv->ino_);
+        dv->ino_->lock_read();
+        fsz = dv->ino_->size;
+    } else {
+        mv = reinterpret_cast<memfile_vnode*>(f->vnode_);
+        assert(mv);
+        mv->lock_.lock_noirq();
+        fsz = mv->mf_->len_;
+    }
+
+    int result;
+    switch (whence) {
+        case LSEEK_SET: {   // set position to 'off'
+            if(off > 0 && size_t(off) >= fsz){
+                result = E_INVAL;
+                break;
+            } 
+            f->rpos_ = off;
+            f->wpos_ = off;
+            result = f->rpos_;
+            break;
+        } 
+        case LSEEK_CUR: {   // adjust position by 'off'
+            if(off > 0 && (size_t(off + f->rpos_) >= fsz || size_t(off + f->wpos_) >= fsz)) {
+                result = E_INVAL;
+                break;
+            }
+            f->rpos_ += off;
+            f->wpos_ += off;
+            result = f->rpos_;
+            break;
+        }
+        case LSEEK_SIZE: {  // return file size
+            result = fsz;
+            break;
+        }
+        case LSEEK_END: {   // set position to 'off' bytes beyoned end of file
+            f->rpos_ = fsz + off;
+            f->wpos_ = fsz + off;
+            result = f->rpos_;
+            break;
+        }
+        default: {
+            result = E_INVAL;
+            break;
+        }
+    }
+
+    if(f->type_ == file_descriptor::disk_t) dv->ino_->unlock_read();
+    if(f->type_ == file_descriptor::memfile_t) mv->lock_.unlock_noirq();
+    
+    return result;
+}
 
 // memshow()
 //    Draw a picture of memory (physical and virtual) on the CGA console.

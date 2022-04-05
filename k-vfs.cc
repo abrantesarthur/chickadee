@@ -243,13 +243,19 @@ uintptr_t diskfile_vnode::write(file_descriptor *f, uintptr_t addr, size_t sz) {
     if(!f->writable_) return E_BADF;
 
     // concurrent writes are not allowed
+    // TODO: can we make lock_write and get_write through one function call?
     ino_->lock_write();
 
-    // TODO: how and when should we mark ino_->entry() as dirty?
-    //  probably when modifying ino_->size or when truncating it.
+    // TODO: mark ino_->entry() as dirty, since we modified ino_->size
 
-    // save initial wpos to update file size later
+    // save initial wpos to correclty update file size later
     size_t initial_wpos_ = f->wpos_;
+
+    // make initial size update, if necessary
+    if(ino_->size < f->wpos_ + sz) {
+        ino_->size = f->wpos_ + sz;
+    }
+
     chkfs_fileiter it(ino_);
     size_t nwritten = 0;
     unsigned char* buf = reinterpret_cast<unsigned char*>(addr);
@@ -275,9 +281,9 @@ uintptr_t diskfile_vnode::write(file_descriptor *f, uintptr_t addr, size_t sz) {
         }
     }
 
-    // update file size
-    if(ino_->size < initial_wpos_ + nwritten) {
-        ino_->size += initial_wpos_ + nwritten;
+    // update file size correclty
+    if(ino_->size != initial_wpos_ + nwritten) {
+        ino_->size = initial_wpos_ + nwritten;
     }
 
     ino_->unlock_write();
