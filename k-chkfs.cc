@@ -556,7 +556,7 @@ auto chkfsstate::allocate_extent(unsigned count) -> blocknum_t {
 }
 
 // TODO: extend testwritefs3 to assert that allocating new dirents works!
-chkfs::dirent* chkfsstate::get_empty_dirent(chkfs::inum_t inum, const char* pathname) {
+int chkfsstate::link_inode(chkfs::inum_t inum, const char* pathname) {
     // read root directory
     auto dirino = get_inode(1);
     chkfs_fileiter it(dirino);
@@ -572,13 +572,19 @@ chkfs::dirent* chkfsstate::get_empty_dirent(chkfs::inum_t inum, const char* path
             size_t sz = min(dirino->size - off, blocksize);
             dirent = reinterpret_cast<chkfs::dirent*>(e->buf_);
             for(unsigned i = 0; i * sizeof(*dirent) < sz; ++i, ++dirent) {
-                // TODO: need to lock write and mark dirty and put
-                if(!dirent->inum) { // add file to dirent
-                    assert(memcmp(dirent->name, pathname, chkfs::maxnamelen) == 0);
+                // if found empty dirent
+                if(!dirent->inum) {  
+                    // get write ref to synchronize updating dirent in the buffer cache 
+                    e->get_write();
+                    // link file to dirent
                     dirent->inum = inum;
                     memcpy(dirent->name, pathname, chkfs::maxnamelen + 1);
+                    // release write ref, effectivelly marking buffer dirty
+                    e->put_write();
+
                     dirino->unlock_read();
-                    return dirent;
+                    e->put();
+                    return 0;
                 }
             }
             e->put();
@@ -593,7 +599,7 @@ chkfs::dirent* chkfsstate::get_empty_dirent(chkfs::inum_t inum, const char* path
         if(!bn) {
             dirino->unlock_read();
             dirino->put();
-            return nullptr;
+            return E_AGAIN;
         }
         it.find(-1).insert(bn, 1);
     } else {
@@ -606,21 +612,28 @@ chkfs::dirent* chkfsstate::get_empty_dirent(chkfs::inum_t inum, const char* path
     if(!e) {
         dirino->unlock_read();
         dirino->put();
-        return nullptr;   
+        e->put();
+        return E_AGAIN;   
     }
 
     // get last dirent in the block
     size_t bro = it.block_relative_offset();
     dirent = reinterpret_cast<chkfs::dirent*>(&e->buf_[bro]);
-    assert(!dirent->inum);
-    assert(memcmp(dirent->name, pathname, chkfs::maxnamelen) == 0);
-    dirino->unlock_read();
 
+    assert(!dirent->inum);
+ 
+    // get write ref to synchronize updating dirent in the buffer cache 
+    e->get_write();
+    // link file to dirent
+    dirent->inum = inum;
+    memcpy(dirent->name, pathname, chkfs::maxnamelen + 1);
+    // release write ref, effectivelly marking buffer dirty
+    e->put_write();
 
     dirino->unlock_read();
     dirino->put();
-
-    return dirent;
+    e->put();
+    return 0;
 }
 
 // TODO: comment this
@@ -631,7 +644,7 @@ chkfs::inode* chkfsstate::create_file(const char* pathname, uint32_t type) {
     assert(sb_entry);
     auto& sb = *reinterpret_cast<chkfs::superblock*>
             (&sb_entry->buf_[chkfs::superblock_offset]);
-    sb_entry->put();
+sb_entry->put();
 
     inode* ino = nullptr;
     bcentry* ino_entry = nullptr;
@@ -641,13 +654,12 @@ chkfs::inode* chkfsstate::create_file(const char* pathname, uint32_t type) {
         if((ino_entry = bc.get_disk_entry(bn, clean_inode_block))) {
             size_t ino_off = (inum % chkfs::inodesperblock) * sizeof(inode);
             ino = reinterpret_cast<chkfs::inode*>(&ino_entry->buf_[ino_off]);
+            // synchronize access to inode's nlink, type, and size
             ino->lock_write();
             if(ino->is_free()) {
-                // TODO: dirent->put() is never called
                 // get empty dirent in root directory
                 auto& fs = chkfsstate::get();
-                chkfs::dirent* dirent = fs.get_empty_dirent(inum, pathname);
-                if(!dirent) {
+                if(fs.link_inode(inum, pathname) < 0) {
                     ino->unlock_write();
                     ino_entry->put();
                     return nullptr;
