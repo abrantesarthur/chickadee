@@ -104,6 +104,10 @@ struct __attribute__((aligned(4096))) proc {
     ssize_t syscall_lseek(int fd, off_t off, int whence);
     void try_close_pipe(file_descriptor* f);
 
+    // buddy allocator test syscalls
+    int syscall_testkalloc(regstate* regs);
+    int syscall_wildalloc(regstate *regs);
+
     void wake();
 
     inline irqstate lock_pagetable_read();

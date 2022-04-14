@@ -363,11 +363,20 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
             return syscall_open(pathname, flags);
         }
 
+
         case SYSCALL_LSEEK: {
             int fd = regs->reg_rdi;
             off_t off = regs->reg_rsi;
             int whence = regs->reg_rdx;
             return syscall_lseek(fd, off, whence);
+        }
+        
+        case SYSCALL_TESTKALLOC: {
+            return syscall_testkalloc(regs);
+        }
+
+        case SYSCALL_WILDALLOC: {
+            return syscall_wildalloc(regs);
         }
 
         default:
@@ -1160,7 +1169,6 @@ static void memshow() {
             "\n\n\n\n\n\n\n\n\n\n\n");
     }
 }
-
 
 // tick()
 //    Called once every tick (0.01 sec, 1/HZ) by CPU 0. Updates the `ticks`

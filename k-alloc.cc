@@ -113,7 +113,7 @@ void kfree(void* ptr) {
     // get block
     page* p = pages.get_block(pa);
 
-    // pa must be memory returned by kalloc
+    // pa must be an address actually allocated by kalloc
     assert(p->first() == pa);
 
 
