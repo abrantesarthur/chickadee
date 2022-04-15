@@ -379,6 +379,14 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
             return syscall_wildalloc(regs);
         }
 
+        case SYSCALL_CLONE: {
+            return syscall_clone();
+        }
+
+        case SYSCALL_TEXIT: {
+            return syscall_texit(regs->reg_rdi);
+        }
+
         default:
             // no such system call
             log_printf("%d: no such system call %u\n", id_, regs->reg_rax);
@@ -1168,6 +1176,16 @@ static void memshow() {
             "                          [All processes have exited]\n"
             "\n\n\n\n\n\n\n\n\n\n\n");
     }
+}
+
+pid_t proc::syscall_clone() {
+    console_printf("syscall_clone");
+    return 0;
+}
+
+pid_t proc::syscall_texit(int status) {
+    console_printf("syscall_texit");
+    return 0;
 }
 
 // tick()

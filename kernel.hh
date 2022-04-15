@@ -35,11 +35,12 @@ struct __attribute__((aligned(4096))) proc {
     };
 
     // These four members must come first:
-    pid_t id_ = 0;                             // Process ID
+    pid_t id_ = 0;                             // Thread ID
     pid_t ppid_;                               // Parents process ID
     regstate* regs_ = nullptr;                 // Process's current registers
     yieldstate* yields_ = nullptr;             // Process's current yield state
     std::atomic<int> pstate_ = ps_blank;       // Process state
+    pid_t pid_ = 0;                            // Process ID
     int exit_status_;                          // Process exit status
     std::atomic<bool> sleeping_ = false;       // Whether the process is sleeping
     std::atomic<bool> interrupted_ = false;    // The process was interrupted while sleeping
@@ -103,6 +104,8 @@ struct __attribute__((aligned(4096))) proc {
     int syscall_open(const char* pathname, int flags);
     ssize_t syscall_lseek(int fd, off_t off, int whence);
     void try_close_pipe(file_descriptor* f);
+    pid_t syscall_clone();
+    pid_t syscall_texit(int status);
 
     // buddy allocator test syscalls
     int syscall_testkalloc(regstate* regs);
@@ -123,6 +126,8 @@ public:
 #define NPROC 16
 extern proc* ptable[NPROC];
 extern spinlock ptable_lock;
+extern proc* pidtable[NPROC];
+extern spinlock pidtable_lock;
 extern struct keyboard_console_vnode* kbd_cons_vnode;
 #define PROCSTACK_SIZE 4096UL
 

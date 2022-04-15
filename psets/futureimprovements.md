@@ -19,3 +19,7 @@
 - what if a child seeks at the same time that its parent writes to a disk file? Is the f->wpos\* and f->rpos fields going to be synchronized?
 
 - pset 4: add support to the `sys_unlink` (test with `make cleanfs run-testwritefs4`), `sys_rename`, `sys_mkdir`, and `sys_rmdir`
+
+# Threads and processes
+
+- add support for more than 16 processes

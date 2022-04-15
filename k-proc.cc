@@ -3,8 +3,10 @@
 #include "k-vmiter.hh"
 #include "k-devices.hh"
 
-proc* ptable[NPROC];                        // array of process descriptor pointers
+proc* ptable[NPROC];                        // array of thread descriptor pointers
 spinlock ptable_lock;                       // protects `ptable`
+proc* pidtable[NPROC];                      // array of process descriptor pointers
+spinlock pidtable_lock;                     // protects 'pidtable'
 keyboard_console_vnode *kbd_cons_vnode;     // global keyboard/console vnode
 
 // proc::proc()
