@@ -111,7 +111,6 @@ void init_process_start() {
     // allocate new process group
     proc_group* pg = knew<proc_group>(1, early_pagetable);
     assert(pg);
-    // pg->add_child(pg);
     // add process to process group
     init_process->pg_ = pg;
     pg->add_proc(init_process);
