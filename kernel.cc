@@ -622,11 +622,11 @@ void proc::syscall_exit(int status) {
         }
 
         // flag process group as exiting. This signals remaining processes
-        // to set their state to ps_exiting. This wakes a sleeping process.
-        // Orocesses also check it in cpustate::schedule and proc::syscall
+        // in the process group to set their state to ps_exiting. They do 
+        // so in cpustate::schedule. It also wakes a sleeping process.
         pg_->exiting_ = true;
 
-        // block until all other threads have exited
+        // block until all other processes (i.e., threads) have exited
         waiter w;
         w.block_until(proc_group_exiting_wq, [&] () {
             proc* p = pg_->procs_.front();
@@ -658,15 +658,20 @@ void proc::syscall_exit(int status) {
         log_printf("kfree %p\n", this);
         kfree_mem(this);
 
-        // interrupt parent if it's sleeping
-        // TODO: handle correcly
-        // proc* parent = ptable[ppid_];
-        // if(parent->sleeping_) {
-        //     parent->interrupted_ = true;
-        // }
-        
-        // // wake parent if it's waiting for child to exit
-        // wait_child_exit_wq.wake_proc(parent);
+        // iterate over threads in parent process
+        proc_group* parent = pgtable[pg_->ppid_];
+        proc* p = parent->procs_.front();
+        while(p) {
+            // interrupt a thread if it's sleeping
+            if(p->sleeping_) {
+                p->interrupted_ = true;
+            }
+
+            // wake thread if it's waiting for child process to exit
+            wait_child_exit_wq.wake_proc(p);
+
+            p = parent->procs_.next(p);
+        }
     }
 
     yield_noreturn();
