@@ -29,6 +29,38 @@ static void tick();
 static void boot_process_start(pid_t pid, const char* program_name);
 static void init_process_start();
 
+void print_pgtable() {
+    log_printf("ptable: [");
+    for(int i = 0; i < NPROC; ++i) {
+        proc_group *p = pgtable[i];
+        if(p) {
+            log_printf("%d, ", p->pid_);
+        } else {
+            log_printf("NULL, ",i, p);
+        }
+    }
+    log_printf("]\n");
+}
+
+void print_processes() {
+    for(int i = 0; i < NPROC; ++i) {
+        proc_group *parent = pgtable[i];
+        proc_group *child;
+        if(parent) {
+            log_printf("%d -> | ", parent->pid_);
+            child = parent->children_.front();
+            while(child) {
+                log_printf("%d | ", child->pid_);
+                child = parent->children_.next(child);
+            }
+            log_printf("\n");
+        }
+    }
+    log_printf("\n");
+}
+
+
+
 // kernel_start(command)
 //    Initialize the hardware and processes and start running. The `command`
 //    string is an optional string passed from the boot loader.
@@ -48,7 +80,7 @@ void kernel_start(const char* command) {
     init_process_start();
 
     // start boot process
-    boot_process_start(2, CHICKADEE_FIRST_PROCESS);
+    boot_process_start(2, CHICKADEE_FIRST_PROCESS);;
 
     // start running processes
     cpus[0].schedule(nullptr);
@@ -443,35 +475,6 @@ int proc::syscall_nasty() {
     return nasty_array[1] + nasty_array[2];
 }
 
-void print_ptable() {
-    for(int i = 0; i < NPROC; ++i) {
-        proc_group *p = pgtable[i];
-        if(p) {
-            log_printf("pgtable[%d] %p\n", i, p);
-        } else {
-            log_printf("pgtable[%d] null\n",i, p);
-        }
-    }
-    log_printf("\n");
-}
-
-void print_processes() {
-    for(int i = 0; i < NPROC; ++i) {
-        proc_group *parent = pgtable[i];
-        proc_group *child;
-        if(parent) {
-            log_printf("%d -> | ", parent->pid_);
-            child = parent->children_.front();
-            while(child) {
-                log_printf("%d | ", child->pid_);
-                child = parent->children_.next(child);
-            }
-            log_printf("\n");
-        }
-    }
-    log_printf("\n");
-}
-
 // proc::syscall_fork(regs)
 //    Handle fork system call.
 // TODO: implement copy-on-write (see lecture 09)
@@ -655,7 +658,6 @@ void proc::syscall_exit(int status) {
         }
 
         // free process' user-acessible memory
-        log_printf("kfree %p\n", this);
         kfree_mem(this);
 
         // iterate over threads in parent process
@@ -688,8 +690,7 @@ pid_t proc::kill_zombie(proc_group* zombie, int* status) {
     assert(ptable_lock.is_locked());
     // assert zombie is a child of this process
     assert(zombie->ppid_ == pg_->pid_);
-    log_printf("%d kill_zombie\n", id_);
-    
+
     // save zombie's exit status to 'status'
     if(status) {
         *status = zombie->exit_status_;

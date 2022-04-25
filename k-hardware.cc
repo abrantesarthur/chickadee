@@ -114,6 +114,7 @@ void reboot() {
 //    machine if `HALT=N` was specified during kernel build.
 
 void process_halt() {
+    log_printf("process_halt\n");
     // change keyboard state, hide cursor
     auto& kbd = keyboardstate::get();
     kbd.state_ = keyboardstate::boot;
