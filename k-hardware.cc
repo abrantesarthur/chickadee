@@ -338,7 +338,7 @@ void log_backtrace(const char* prefix) {
 }
 
 void log_backtrace(const proc* p, const char* prefix) {
-    backtracer bt(*p->regs_, p->pagetable_);
+    backtracer bt(*p->regs_, p->pg_->pagetable_);
     log_backtrace(bt, prefix);
 }
 

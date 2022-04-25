@@ -23,6 +23,7 @@ proc* init_process = nullptr;
 wait_queue wait_child_exit_wq;
 #define SLEEP_WQS_COUNT 10
 wait_queue sleep_wqs[SLEEP_WQS_COUNT];
+wait_queue proc_group_exiting_wq;
 
 static void tick();
 static void boot_process_start(pid_t pid, const char* program_name);
@@ -40,6 +41,7 @@ void kernel_start(const char* command) {
     // set up process descriptors
     for (pid_t i = 0; i < NPROC; i++) {
         ptable[i] = nullptr;
+        pgtable[i] = nullptr;
     }
 
     // start init process
@@ -68,12 +70,26 @@ void init_process_start() {
     init_process = knew<proc>();
     assert(init_process);
     init_process->init_kernel(1, init_process_function);
-    init_process->ppid_ = init_process->id_;
     {
         spinlock_guard guard(ptable_lock);
         assert(!ptable[1]);
         ptable[1] = init_process;
     }
+
+    // allocate new process group
+    proc_group* pg = knew<proc_group>(1, early_pagetable);
+    assert(pg);
+    pg->add_child(pg);
+    // add process to process group
+    init_process->pg_ = pg;
+    pg->add_proc(init_process);
+    // add process group to proces group table
+    {
+        spinlock_guard guard(pgtable_lock);
+        assert(!pgtable[1]);
+        pgtable[1] = pg;
+    }
+
     cpus[init_process->id_ % ncpu].enqueue(init_process);
 }
 
@@ -91,21 +107,27 @@ void boot_process_start(pid_t pid, const char* name) {
     int r = proc::load(ld);
     initfs_lock.unlock(irqs);
     assert(r >= 0);
-
-    // allocate process, initialize memory
-    proc* p = knew<proc>();
-    p->init_user(pid, ld.pagetable_);
-    p->regs_->reg_rip = ld.entry_rip_;
-
-    // set ppid to init process ID
     assert(init_process);
-    p->ppid_ = init_process->id_;
 
-    // initiazlie file descriptor table
-    p->init_fd_table();
+    // allocate process group, make it a child of the initial
+    // process group, and initialize memory and file descriptor table
+    proc_group* pg = knew<proc_group>(pid, ld.pagetable_);
+    init_process->pg_->add_child(pg);
+    pg->init_fd_table();
 
-    // add boot process to init process children list
-    init_process->children_.push_front(p);
+    // add to process group table (requires lock in case another CPU is already
+    // running processes)
+    {
+        spinlock_guard guard(pgtable_lock);
+        assert(!pgtable[pid]);
+        pgtable[pid] = pg;
+    }
+
+    // allocate process and add it to process group
+    proc* p = knew<proc>();
+    p->init_user(pid, pg);
+    p->regs_->reg_rip = ld.entry_rip_;
+    pg->add_proc(p);
 
     void* stkpg = kalloc(PAGESIZE);
     assert(stkpg);
@@ -211,6 +233,13 @@ void proc::exception(regstate* regs) {
 //    The return value from `proc::syscall()` is returned to the user
 //    process in `%rax`.
 uintptr_t proc::syscall(regstate* regs) {
+     // yield if process group is exiting
+     // cpustate::schedule setting this state to ps_exiting
+    if(pg_->exiting_) {
+        yield_noreturn();
+        // this won't be reached
+    }
+
     uintptr_t ret_val = unsafe_syscall(regs);
     assert(canary = PROC_CANARY);
     return ret_val;
@@ -296,7 +325,7 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
         case SYSCALL_GETPPID: {
             // synchronize access to ppid_ with exit
             spinlock_guard g(ptable_lock);
-            return ppid_;
+            return pg_->ppid_;
         }
 
         case SYSCALL_WAITPID: {
@@ -328,10 +357,19 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
             unsigned long wakeup_time = ticks + (regs->reg_rdi + 9) / 10;
             sleeping_ = true;
             waiter w;
+            // sleep until wakeup time, or thread is interrupted, or should exit
             w.block_until(sleep_wqs[wakeup_time % SLEEP_WQS_COUNT], [&] () {
-                return (long(wakeup_time - ticks) < 0 || interrupted_);
+                return (long(wakeup_time - ticks) < 0 || interrupted_ || pg_->exiting_);
             });
             sleeping_ = false;
+
+            // if process group is exiting, yield.
+            // cpustate::schedule will be called and set state to ps_exiting
+            if(pg_->exiting_) {
+                yield_noreturn();
+                // this won't be reached
+            }
+
             if(interrupted_) {
                 interrupted_ = false;
                 return E_INTR;
@@ -405,93 +443,131 @@ int proc::syscall_nasty() {
     return nasty_array[1] + nasty_array[2];
 }
 
+void print_ptable() {
+    for(int i = 0; i < NPROC; ++i) {
+        proc_group *p = pgtable[i];
+        if(p) {
+            log_printf("pgtable[%d] %p\n", i, p);
+        } else {
+            log_printf("pgtable[%d] null\n",i, p);
+        }
+    }
+    log_printf("\n");
+}
+
+void print_processes() {
+    for(int i = 0; i < NPROC; ++i) {
+        proc_group *parent = pgtable[i];
+        proc_group *child;
+        if(parent) {
+            log_printf("%d -> | ", parent->pid_);
+            child = parent->children_.front();
+            while(child) {
+                log_printf("%d | ", child->pid_);
+                child = parent->children_.next(child);
+            }
+            log_printf("\n");
+        }
+    }
+    log_printf("\n");
+}
+
 // proc::syscall_fork(regs)
 //    Handle fork system call.
-// TODO: use goto statements for cleaner deallocation (see lecture 6)
 // TODO: implement copy-on-write (see lecture 09)
 int proc::syscall_fork(regstate* regs) {
     // protect access to ptable
-    spinlock_guard guard(ptable_lock);
+    spinlock_guard ptable_guard(ptable_lock);
+
+    // protect access to pgtable
+    spinlock_guard pgtable_guard(pgtable_lock);
+
+    proc_group* pg;
+    pid_t child_pid;
+    pid_t j;
+    // look for available process group PID
+    for(j = 1; j < NPROC; j++) {
+        if(!pgtable[j]) {
+            child_pid = j;
+            break;
+        }
+    }
+    // return error if out of pids
+    if(j == NPROC) {
+        return E_NOMEM;
+    }
+
+    // allocate pagetable for the process group
+    x86_64_pagetable* pagetable = kalloc_pagetable();
+    if (!pagetable) {
+        return E_NOMEM;
+    }
+
+    // allocate process group with PID child_pid, make it a child
+    // of this process group, and initiate its memory
+    pg = knew<proc_group>(child_pid, pagetable);
+    if (!pg) {
+        goto bad_fork_free_pagetable;
+    }
+    pgtable[child_pid] = pg;
+    pg_->add_child(pg);
+
+    // TODO: this is where most of the syscall_clone functionality will start
 
     proc* p;
-    pid_t child_pid;
-        
+    pid_t child_id;
     pid_t i;
-    // look for available pid
+    // look for available thread pid
     for (i = 1; i < NPROC; ++i) {
         if (!ptable[i]) {
-            child_pid = i;
+            child_id = i;
             break;
         }
     }
 
     // return error if out of pids
     if (i == NPROC) {
-        return E_NOMEM;
+        goto bad_fork_cleanup_procgroup;
     }
+
 
     // allocate process and assign found pid to it
     p = knew<proc>();
     if (!p) {
-        return E_NOMEM;
+        goto bad_fork_cleanup_procgroup;
     }
-    ptable[child_pid] = p;
+    ptable[child_id] = p;
 
-    // allocate pagetable for the process
-    x86_64_pagetable* pagetable = kalloc_pagetable();
-    if (!pagetable) {
-        kfree(p);
-        ptable[child_pid] = nullptr;
-        return E_NOMEM;
-    }
-
-    // initialize process
-    p->init_user(child_pid, pagetable);
+    // initialize process and add it to process group
+    p->init_user(child_id, pg);
+    pg->add_proc(p);
 
     // copy the parent process' user-accessible memory
     for (vmiter it(this, 0); it.low(); it.next()) {
         if (it.user() && it.pa() != CONSOLE_ADDR) {
             // allocate new page
             void* new_page = kalloc(PAGESIZE);
-
             // map page's physical address to a virtual address
             if (!new_page || vmiter(p, it.va()).try_map(new_page, it.perm()) != 0) {
-                // remove proces from ptable
-                ptable[child_pid] = nullptr;
                 // free most recently allocated memory page
                 kfree(new_page);
-                // free memory pages allocated in previous iterations
-                kfree_mem(p);
-                // free pagetable
-                kfree_pagetable(pagetable);
-                // free process page (struct proc and kernel stack)
-                kfree(p);
-                return E_NOMEM;
+                goto bad_fork_cleanup_childproc;
             }
-
             // copy parent's page
             memcpy(new_page, it.kptr(), PAGESIZE);
         } else if (it.pa() == CONSOLE_ADDR) {
             if(vmiter(p, it.va()).try_map(CONSOLE_ADDR, it.perm()) < 0) {
-                // remove proces from ptable
-                ptable[child_pid] = nullptr;
-                // free memory pages allocated in previous iterations
-                kfree_mem(p);
-                // free pagetable
-                kfree_pagetable(pagetable);
-                // free process page (struct proc and kernel stack)
-                kfree(p);
-                return E_NOMEM;
+                goto bad_fork_cleanup_childproc;
             }
         }
     }
 
     // copy parent's file descriptors
     for(int fd = 0; fd < FDS_COUNT; ++fd) {
-        if(fd_table_[fd]) {
-            spinlock_guard(fd_table_[fd]->lock_);
-            p->fd_table_[fd] = fd_table_[fd];
-            ++fd_table_[fd]->ref_;
+        if(pg_->fd_table_[fd]) {
+            spinlock_guard(pg_->fd_table_[fd]->lock_);
+            p->pg_->fd_table_[fd] = pg_->fd_table_[fd];
+            ++pg_->fd_table_[fd]->ref_;
         }
     }
 
@@ -501,16 +577,30 @@ int proc::syscall_fork(regstate* regs) {
     // set %rax so 0 gets returned to child
     p->regs_->reg_rax = 0;
 
-    // set child's ppid
-    p->ppid_ = this->id_;
-    
-    // add child to this process' children
-    children_.push_front(p);
-
     // add child to a cpu
-    cpus[child_pid % ncpu].enqueue(p);
+    cpus[child_id % ncpu].enqueue(p);
     
-    return child_pid;
+    return child_id;
+
+    // error handling 'goto' statements
+    bad_fork_cleanup_childproc:
+        // remove process from ptable
+        ptable[child_id] = nullptr;
+        // free memory pages allocated in previous iterations
+        // TODO: in syscall_clone, don't free memory if other threads are still executing
+        kfree_mem(p);
+        // free process page (struct proc and kernel stack)
+        kfree(p);
+    bad_fork_cleanup_procgroup:
+        // remove process group from pgtable
+        pgtable[child_pid] = nullptr;
+        // remove process group from this group's children
+        pg_->remove_child(pg);
+        // free process group
+        kfree(pg);
+    bad_fork_free_pagetable:
+        kfree_pagetable(pagetable);
+    return E_NOMEM;
 }
 
 // syscall_exit(status)
@@ -518,43 +608,65 @@ int proc::syscall_fork(regstate* regs) {
 //      reparenting its children, freeing its user-accessible memory,
 //      and waking up its parent so it can finish the exit process.
 void proc::syscall_exit(int status) {
-
     {
         // synchronize access to pstate_ and to ppid_
+        // TODO: protect pstate_ with a less generic lock
         spinlock_guard guard(ptable_lock);
 
-        //close file descriptor table
+        // reparent process group' children
+        proc_group* child_group = pg_->children_.pop_front();
+        while(child_group) {
+            child_group->ppid_ = init_process->pg_->pid_;
+            init_process->pg_->children_.push_front(child_group);
+            child_group = pg_->children_.pop_front();
+        }
+
+        // flag process group as exiting. This signals remaining processes
+        // to set their state to ps_exiting. This wakes a sleeping process.
+        // Orocesses also check it in cpustate::schedule and proc::syscall
+        pg_->exiting_ = true;
+
+        // block until all other threads have exited
+        waiter w;
+        w.block_until(proc_group_exiting_wq, [&] () {
+            proc* p = pg_->procs_.front();
+            assert(p);
+            while(p) {
+                if(p != this && p->pstate_ != ps_exiting) {
+                    return false;
+                }
+                p = pg_->procs_.next(p);
+            }
+            return true;
+        }, guard);
+
+        // TODO: prevent cloning if a process group is exiting
+
+        // set the state of this process as ps_exiting
+        // parent will finish exit process
+        pstate_ = ps_exiting;
+        
+        // set exit status to be retrieved later when parent calls waitpid
+        pg_->exit_status_ = status;
+
+        //close process group's file descriptor table
         for(int fd = 0; fd < FDS_COUNT; fd++) {
             syscall_close(fd);
         }
 
-        // reparent process' children
-        proc* child = children_.pop_front();
-        while(child) {
-            child->ppid_ = init_process->id_;
-            init_process->children_.push_front(child);
-            child = children_.pop_front();
-        }
-
-        // set the state of process to ps_nonrunnable parent finishes exit process
-        pstate_ = ps_nonrunnable;
-
-        // set exit status to be retrieved later when parent calls waitpid
-        exit_status_ = status;
-
-         // free process' user-acessible memory
+        // free process' user-acessible memory
+        log_printf("kfree %p\n", this);
         kfree_mem(this);
 
         // interrupt parent if it's sleeping
-        proc* parent = ptable[ppid_];
-        if(parent->sleeping_) {
-            parent->interrupted_ = true;
-        }
+        // TODO: handle correcly
+        // proc* parent = ptable[ppid_];
+        // if(parent->sleeping_) {
+        //     parent->interrupted_ = true;
+        // }
         
-        // wake parent if it's waiting for child to exit
-        wait_child_exit_wq.wake_proc(parent);
-
-
+        // // wake parent if it's waiting for child to exit
+        // wait_child_exit_wq.wake_proc(parent);
     }
 
     yield_noreturn();
@@ -564,21 +676,34 @@ void proc::syscall_exit(int status) {
 //      removes zombie from ptable and from parent's children's list.
 //      frees zombie's resources (i.e, pagetables, struct proc, and kernel task stack), saves its
 //      exit status in 'status', and return its pid to the caller.
-pid_t proc::kill_zombie(proc* zombie, int* status) {
+pid_t proc::kill_zombie(proc_group* zombie, int* status) {
+    // assert that all processes within the group are zombies
+    assert(zombie->is_zombie());
     // assert that access to ptable and ppid_ is protected
     assert(ptable_lock.is_locked());
     // assert zombie is a child of this process
-    assert(zombie->ppid_ == id_);
+    assert(zombie->ppid_ == pg_->pid_);
+    log_printf("%d kill_zombie\n", id_);
     
     // save zombie's exit status to 'status'
     if(status) {
         *status = zombie->exit_status_;
     }
 
-    // remove zombie from ptable and children' list
-    pid_t zid = zombie->id_;
-    ptable[zid] = nullptr;
-    children_.erase(zombie);
+    // remove all processes within zombie from ptable
+    proc* p = zombie->procs_.pop_front();
+    assert(p);
+    while(p) {
+        ptable[p->id_] = nullptr;
+        kfree(p);
+        p = zombie->procs_.pop_front();
+    }
+
+    // remove zombie from pgtable and from its parent's children's list
+    spinlock_guard guard(pgtable_lock);
+    pid_t zid = zombie->pid_;
+    pgtable[zid] = nullptr;
+    pg_->children_.erase(zombie);
 
     // free zombie's resources. This would work even if ptable_lock
     // was not acquired, since zombie is no longer at ptable at this point.
@@ -589,11 +714,26 @@ pid_t proc::kill_zombie(proc* zombie, int* status) {
     return zid;
 }
 
+// proc::is_zombie(pg)
+//    Returns true iff all processes within process group
+//    are non-runnable (i.e., zombies)
+bool proc_group::is_zombie() {
+    proc* p = procs_.front();
+    assert(p);
+    while(p) {
+        if(p->pstate_ != proc::ps_exiting) {
+            return false;
+        }
+        p = procs_.next(p);
+    }
+    return true;
+}
+
 pid_t proc::syscall_waitpid(pid_t pid, int* status, int options) {
     // synchronize access to pstate_
     spinlock_guard g(ptable_lock);
 
-    proc* child = children_.front();
+    proc_group* child = pg_->children_.front();
     if(!child) {
         return E_CHILD;
     }
@@ -601,13 +741,16 @@ pid_t proc::syscall_waitpid(pid_t pid, int* status, int options) {
     if(pid == 0) {
         // wait for any child
         if(options == W_NOHANG) {
-            // iterate once over children looking for zombies
+            // iterate once over children process group
             while(child) {
-                if(child->pstate_ == proc::ps_nonrunnable) {
+                // if found a group whose all processes are all zombies, kill the group
+                if(child->is_zombie()) {
                     return kill_zombie(child, status);
                 }
-                child = children_.next(child);
+                // otherwise, go to next group
+                child = pg_->children_.next(child);
             }
+
             // W_NOHANG means not blocking
             return E_AGAIN;
         }
@@ -616,27 +759,27 @@ pid_t proc::syscall_waitpid(pid_t pid, int* status, int options) {
         // this avoids the lost wakeup problem 
         waiter w;
         w.block_until(wait_child_exit_wq, [&] () {
-            child = children_.next(child);
+            child = pg_->children_.next(child);
             // loop back if out of children
             if(!child) {
-                child = children_.front();
+                child = pg_->children_.front();
             }
-            return child->pstate_ == proc::ps_nonrunnable;
+            return child->is_zombie();
         }, g);
 
-        // now, child state is ps_nonrunnable, so kill zombie
+        // now, process group has only non-runnable processes, so kill it
         return kill_zombie(child, status);
     }
     
     // wait for specific child with id 'pid'
     while(child) {
-        if(child->id_ != pid) {
-            child = children_.next(child);
+        if(child->pid_ != pid) {
+            child = pg_->children_.next(child);
         } else {
             // found the child
             if(options == W_NOHANG) {
                 // don't block
-                if(child->pstate_ != proc::ps_nonrunnable) {
+                if(!child->is_zombie()) {
                     return E_AGAIN;
                 }
                 return kill_zombie(child, status);
@@ -644,7 +787,7 @@ pid_t proc::syscall_waitpid(pid_t pid, int* status, int options) {
             // block until child exits, releasing ptable_lock while doing so
             waiter w;
             w.block_until(wait_child_exit_wq, [&] () {
-                return (child->pstate_ == proc::ps_nonrunnable);
+                return child->is_zombie();
             }, g);
             return kill_zombie(child, status);
         }
@@ -672,7 +815,7 @@ uintptr_t proc::syscall_read(regstate* regs) {
     }
 
     // test that file descriptor is present and readable
-    if(fd < 0 || !fd_table_[fd] || !fd_table_[fd]->readable_) {
+    if(fd < 0 || !pg_->fd_table_[fd] || !pg_->fd_table_[fd]->readable_) {
         return E_BADF;
     }
 
@@ -682,7 +825,7 @@ uintptr_t proc::syscall_read(regstate* regs) {
         return E_FAULT;
     }
     // read 'sz' bytes into 'addr' and from file descriptor
-    return fd_table_[fd]->vnode_->read(fd_table_[fd], addr, sz);
+    return pg_->fd_table_[fd]->vnode_->read(pg_->fd_table_[fd], addr, sz);
 }
 
 uintptr_t proc::syscall_write(regstate* regs) {
@@ -701,7 +844,7 @@ uintptr_t proc::syscall_write(regstate* regs) {
     }
 
     // test that file descriptor is present and writable
-    if(fd < 0 || !fd_table_[fd] || !fd_table_[fd]->writable_) {
+    if(fd < 0 || !pg_->fd_table_[fd] || !pg_->fd_table_[fd]->writable_) {
         return E_BADF;
     }
 
@@ -710,7 +853,7 @@ uintptr_t proc::syscall_write(regstate* regs) {
         return E_FAULT;
     }
     
-    return fd_table_[fd]->vnode_->write(fd_table_[fd], addr, sz);
+    return pg_->fd_table_[fd]->vnode_->write(pg_->fd_table_[fd], addr, sz);
 }
 
 uintptr_t proc::syscall_readdiskfile(regstate* regs) {
@@ -768,7 +911,7 @@ int proc::syscall_dup2(int fd1, int fd2) {
     if(fd1 == fd2) return fd2;
 
     // test that file descriptors are valid
-    if(fd1 < 0 || fd1 >= FDS_COUNT || !fd_table_[fd1]) {
+    if(fd1 < 0 || fd1 >= FDS_COUNT || !pg_->fd_table_[fd1]) {
         return E_BADF;
     }
     if(fd2 < 0 || fd2 >= FDS_COUNT) {
@@ -776,14 +919,14 @@ int proc::syscall_dup2(int fd1, int fd2) {
     }
 
     // close fd2 if present
-    if(fd_table_[fd2]) {
+    if(pg_->fd_table_[fd2]) {
         syscall_close(fd2);
     }
     
     // copy fd1 into fd2 and increase reference count
-    fd_table_[fd2] = fd_table_[fd1];
-    spinlock_guard(fd_table_[fd2]->lock_);
-    ++fd_table_[fd2]->ref_;
+    pg_->fd_table_[fd2] = pg_->fd_table_[fd1];
+    spinlock_guard(pg_->fd_table_[fd2]->lock_);
+    ++pg_->fd_table_[fd2]->ref_;
     return fd2;
 }
 
@@ -792,13 +935,13 @@ int proc::syscall_close(int fd) {
     if(fd < 0 || fd >= FDS_COUNT) {
         return E_BADF;
     }
-    file_descriptor *f = fd_table_[fd];
+    file_descriptor *f = pg_->fd_table_[fd];
     if(!f) {
         return E_BADF;
     }
 
     // clear file descriptor table entry
-    fd_table_[fd] = nullptr;
+    pg_->fd_table_[fd] = nullptr;
 
     // protect access to file descriptor table
     spinlock_guard(f->lock_);
@@ -860,12 +1003,12 @@ void proc::try_close_pipe(file_descriptor* f) {
 //     return fd on success and error code on failure
 int proc::fd_alloc(int type, int flags, vnode* v) {
     for(int fd = 3; fd < FDS_COUNT; ++fd) {
-        if(!fd_table_[fd]) {
+        if(!pg_->fd_table_[fd]) {
             file_descriptor* fd_ptr = knew<file_descriptor>(type, flags, v);
             if(!fd_ptr) {
                 return E_NOMEM;
             }
-            fd_table_[fd] = fd_ptr;
+            pg_->fd_table_[fd] = fd_ptr;
             return fd;
         }
     }
@@ -894,10 +1037,10 @@ uintptr_t proc::syscall_pipe() {
     }
     int wfd = fd_alloc(file_descriptor::pipe_t, OF_WRITE, vnode);
     if(wfd < 0) {
-        kfree(fd_table_[rfd]);
+        kfree(pg_->fd_table_[rfd]);
         kfree(buf);
         kfree(vnode);
-        fd_table_[rfd] = nullptr;
+        pg_->fd_table_[rfd] = nullptr;
         return wfd;
     }
     
@@ -947,8 +1090,8 @@ int proc::syscall_execv(uintptr_t program_name, const char* const* argv, size_t 
     }
 
     // allocate a pagetable
-    x86_64_pagetable *pgtable = kalloc_pagetable();
-    if(!pgtable) {
+    x86_64_pagetable *pt = kalloc_pagetable();
+    if(!pt) {
         return E_NOMEM;
     }
 
@@ -958,34 +1101,34 @@ int proc::syscall_execv(uintptr_t program_name, const char* const* argv, size_t 
     if(!ino) return E_FAULT;
 
     // instantiate a proc_loader with the disk file and pagetable
-    diskfile_loader ld(ino, pgtable);
+    diskfile_loader ld(ino, pt);
 
     // load program into user-level memory
     int r = proc::load(ld);
     if(r < 0){
-        kfree_pagetable(pgtable);
+        kfree_pagetable(pt);
         return r;
     }
     
     // map the user level stack at address MEMSIZE_VIRTUAL
     void* stackpg = kalloc(PAGESIZE);
-    if(!stackpg || vmiter(pgtable, MEMSIZE_VIRTUAL - PAGESIZE).try_map(stackpg, PTE_PWU) < 0) {
+    if(!stackpg || vmiter(pt, MEMSIZE_VIRTUAL - PAGESIZE).try_map(stackpg, PTE_PWU) < 0) {
         kfree(stackpg);
-        kfree_pagetable(pgtable);
+        kfree_pagetable(pt);
         return E_NOMEM;
     }
 
     // map the console at address CONSOLE_ADDR
-    if(vmiter(pgtable, CONSOLE_ADDR).try_map(CONSOLE_ADDR, PTE_PWU) < 0) {
+    if(vmiter(pt, CONSOLE_ADDR).try_map(CONSOLE_ADDR, PTE_PWU) < 0) {
         kfree(stackpg);
-        kfree_pagetable(pgtable);
+        kfree_pagetable(pt);
         return E_NOMEM;
     }
     
     // copy arguments into new stack
     uintptr_t args_addrs[argc];
     uintptr_t sz;
-    vmiter it(pgtable, MEMSIZE_VIRTUAL);
+    vmiter it(pt, MEMSIZE_VIRTUAL);
     for(int i = argc - 1; i >= 0; --i) {
         sz = strlen(argv[i]) + 1;
         it -= sz;
@@ -1002,10 +1145,11 @@ int proc::syscall_execv(uintptr_t program_name, const char* const* argv, size_t 
     }
 
     // save old pagetable
-    x86_64_pagetable *old_pgtable = this->pagetable_;
+    x86_64_pagetable *old_pt = pg_->pagetable_;
 
-    // reset this process to have pagetable 'pgtable'
-    init_user(id_, pgtable);
+    // reset this process to have pagetable 'pt'
+    // TODO: make sure we didn't break anything
+    pg_->pagetable_ = pt;
 
     // set the registers
     regs_->reg_rbp = MEMSIZE_VIRTUAL;
@@ -1014,12 +1158,14 @@ int proc::syscall_execv(uintptr_t program_name, const char* const* argv, size_t 
     regs_->reg_rsi = regs_->reg_rsp;
     regs_->reg_rdi = argc;
 
+    // we assume syscall_execv is called by single-threaded processes
+
     // switch to new pagetable
-    set_pagetable(pgtable);
+    set_pagetable(pt);
 
     // free old pagetable and user memory
-    kfree_mem(old_pgtable);
-    kfree_pagetable(old_pgtable);
+    kfree_mem(old_pt);
+    kfree_pagetable(old_pt);
     yield_noreturn();
 }
 
@@ -1068,7 +1214,7 @@ int proc::syscall_open(const char* pathname, int flags) {
 // parent writes to it to make sure that the file_descriptor wpos_ and rpos_ 
 // are correclty synchronized
 ssize_t proc::syscall_lseek(int fd, off_t off, int whence) {
-    file_descriptor *f = fd_table_[fd];
+    file_descriptor *f = pg_->fd_table_[fd];
 
     if(!f || !f->vnode_) {
         return E_BADF;
@@ -1163,8 +1309,8 @@ static void memshow() {
 
     int search = 0;
     while ((!ptable[showing]
-            || !ptable[showing]->pagetable_
-            || ptable[showing]->pagetable_ == early_pagetable)
+            || !ptable[showing]->pg_->pagetable_
+            || ptable[showing]->pg_->pagetable_ == early_pagetable)
            && search < NPROC) {
         showing = (showing + 1) % NPROC;
         ++search;

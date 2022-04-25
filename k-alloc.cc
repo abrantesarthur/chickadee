@@ -146,10 +146,9 @@ void kfree_mem(x86_64_pagetable* pt) {
 void kfree_mem(proc* p) {
     // assumes that process 'p' is no longer in the ptable
     // to avoid synchronization conflicts with memviewer
-    assert(p->pagetable_);
-    return kfree_mem(p->pagetable_);
+    assert(p && p->pg_ && p->pg_->pagetable_);
+    return kfree_mem(p->pg_->pagetable_);
 }
-
 
 // kfree_pagetable
 //      Free the 'pagetable'

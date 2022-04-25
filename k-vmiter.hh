@@ -167,7 +167,7 @@ inline vmiter::vmiter(x86_64_pagetable* pt, uintptr_t va)
     real_find(va, false);
 }
 inline vmiter::vmiter(const proc* p, uintptr_t va)
-    : vmiter(p->pagetable_, va) {
+    : vmiter(p->pg_->pagetable_, va) {
 }
 inline uintptr_t vmiter::va() const {
     return va_;
@@ -280,7 +280,7 @@ inline void vmiter::kfree_page() {
 }
 
 inline ptiter::ptiter(const proc* p)
-    : ptiter(p->pagetable_) {
+    : ptiter(p->pg_->pagetable_) {
 }
 inline uintptr_t ptiter::va() const {
     return va_ & ~vmiter::lbits_mask(lbits_);

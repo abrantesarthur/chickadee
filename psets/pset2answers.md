@@ -11,7 +11,7 @@ Leave your name out of this file. Put collaboration notes and credit in
 
 - I added a `list_links children_links_` and a `children_` list to each `struct proc`. The former allows a process to be added as a child of another process. The latter allows a process to keep track of its own children. This way, when a process is exiting, it can reparent its children in `O(C)` time, where `C` is its number of children, by iterating over `children_`
 
-##### Synchronization invariantes
+##### Synchronization invariants
 
 ###### proc::ppid\_
 
@@ -23,7 +23,7 @@ Leave your name out of this file. Put collaboration notes and credit in
 
 - `proc::pstate_` may be modified only by the corresponding kernel task, except that other contexts may perform an atomic compare-and-swap operation that changes `ps_blocked` state to `ps_runnable`.
 
-  This guarantees that `sys_waitpid` does not free a zombie while another CPU is running on the zombie's kernel task stack. After all, `cpustate::schedule(p)` will only schedule `p` to run if its status is `ps_runnable`. Moreover, it is an invariant that an executing process is not on the `runq` for any other CPU. Hence if a process exits, hence setting its status to `ps_nonrunnable` and becoming a zombie, our invariant prevents any other cpu from executing on its kernel stack (because the zombie process is executing on a single cpu and its status will never change again).
+  This guarantees that `sys_waitpid` does not free a zombie while another CPU is running on the zombie's kernel task stack. After all, `cpustate::schedule(p)` will only schedule `p` to run if its status is `ps_runnable`. Moreover, it is an invariant that an executing process is not on the `runq` for any other CPU. Hence if a process exits, hence setting its status to `ps_exiting` and becoming a zombie, our invariant prevents any other cpu from executing on its kernel stack (because the zombie process is executing on a single cpu and its status will never change again).
 
   In the future, allowing different contexts to transition a process' state from `ps_blocked` to something other than `ps_runnable` may affect this invariant's correctness.
 

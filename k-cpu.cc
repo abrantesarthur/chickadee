@@ -3,7 +3,7 @@
 
 cpustate cpus[MAXCPU];
 int ncpu;
-
+extern wait_queue proc_group_exiting_wq;
 
 // cpustate::init()
 //    Initialize a `cpustate`. Should be called once per active CPU,
@@ -62,7 +62,7 @@ void cpustate::disable_irq(int irqno) {
 
 void cpustate::enqueue(proc* p) {
     spinlock_guard guard(runq_lock_);
-    if (current_ != p && !p->runq_links_.is_linked()) {
+    if (current_ != p && !p->runq_link_.is_linked()) {
         assert(p->resumable() || p->pstate_ != proc::ps_runnable);
         runq_.push_back(p);
     }
@@ -78,6 +78,13 @@ void cpustate::schedule(proc* yielding_from) {
     assert(contains(rdrsp()));     // running on CPU stack
     assert(is_cli());              // interrupts are currently disabled
     assert(spinlock_depth_ == 0);  // no spinlocks are held
+
+    // check if current process should exit
+    if(current_ && current_->pg_->exiting_) {
+        current_->pstate_ = proc::ps_exiting;
+        // wake process that called exit
+        proc_group_exiting_wq.wake_all();
+    }
 
     // initialize idle task
     if (!idle_task_) {
@@ -96,12 +103,12 @@ void cpustate::schedule(proc* yielding_from) {
            || current_->pstate_ != proc::ps_runnable
            || current_ == yielding_from) {
         runq_lock_.lock_noirq();
-
+        
         // re-enqueue old current if necessary
         proc* prev = current_;
         if (prev && prev->pstate_ == proc::ps_runnable) {
             assert(prev->resumable());
-            assert(!prev->runq_links_.is_linked());
+            assert(!prev->runq_link_.is_linked());
             runq_.push_back(prev);
         }
 
@@ -114,7 +121,7 @@ void cpustate::schedule(proc* yielding_from) {
     }
 
     // run `current_`
-    set_pagetable(current_->pagetable_);
+    set_pagetable(current_->pg_->pagetable_);
     // increase resume count
     current_->resume_count_++;
     current_->resume(); // does not return
@@ -138,4 +145,13 @@ void cpustate::init_idle_task() {
     assert(!idle_task_);
     idle_task_ = knew<proc>();
     idle_task_->init_kernel(-1, idle);
+
+     // add idle task to a process group
+    proc_group* pg = knew<proc_group>(-1, early_pagetable);
+    assert(pg);
+    pg->ppid_ = pg->pid_;
+    pg->add_child(pg);
+    // add process to process group
+    idle_task_->pg_ = pg;
+    pg->add_proc(idle_task_);
 }

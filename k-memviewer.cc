@@ -95,12 +95,12 @@ void memusage::refresh() {
             mark(ka2pa(p), f_kernel | f_process(pid));
 
             auto irqs = p->lock_pagetable_read();
-            if (p->pagetable_ && p->pagetable_ != early_pagetable) {
+            if (p->pg_->pagetable_ && p->pg_->pagetable_ != early_pagetable) {
                 for (ptiter it(p); it.low(); it.next()) {
                     // mark pagetable as kernel
                     mark(it.pa(), f_kernel | f_process(pid));
                 }
-                mark(ka2pa(p->pagetable_), f_kernel | f_process(pid));
+                mark(ka2pa(p->pg_->pagetable_), f_kernel | f_process(pid));
 
                 for (vmiter it(p, 0); it.low();) {
                     if (it.user()) {
@@ -122,6 +122,7 @@ void memusage::refresh() {
         if (cpus[cpuid].idle_task_)
         {
             mark(ka2pa(cpus[cpuid].idle_task_), f_kernel);
+            mark(ka2pa(cpus[cpuid].idle_task_->pg_), f_kernel);
         }
     }
 
@@ -257,7 +258,7 @@ void console_memviewer(proc* vmp) {
     bool need_clear = true;
     if (vmp) {
         auto irqs = vmp->lock_pagetable_read();
-        if (vmp->pagetable_ && vmp->pagetable_ != early_pagetable) {
+        if (vmp->pg_->pagetable_ && vmp->pg_->pagetable_ != early_pagetable) {
             console_memviewer_virtual(mu, vmp);
             need_clear = false;
         }

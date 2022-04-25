@@ -4,7 +4,7 @@
 
 - improve `mark_dirty` strategy. Understand difference between `ino->unlock_write` and `ino->entry()->put_write`. Moreover, It seems like we always mark dirty when we call `ino()->unlock_write`
 
-## scheuduler
+## scheduler
 
 - implement a better scheduline algorithm. Look at Linux's Completely Fair Algorithm (Lecture 17) for inspiration
 
@@ -20,6 +20,11 @@
 
 - pset 4: add support to the `sys_unlink` (test with `make cleanfs run-testwritefs4`), `sys_rename`, `sys_mkdir`, and `sys_rmdir`
 
-# Threads and processes
+## Threads and processes
 
-- add support for more than 16 processes
+- add support for more than 16 processes and threads
+- `make run-allocexit` dislays dots (i.e., memory) that can't be allocated. Fix that
+
+## proc::syscall_execv
+
+- It assumes that it is called by a single-threaded process. Remove that assumption

@@ -5,9 +5,42 @@
 
 proc* ptable[NPROC];                        // array of thread descriptor pointers
 spinlock ptable_lock;                       // protects `ptable`
-proc* pidtable[NPROC];                      // array of process descriptor pointers
-spinlock pidtable_lock;                     // protects 'pidtable'
+proc_group* pgtable[NPROC];                   // array of process descriptor pointers
+spinlock pgtable_lock;                  // protects 'pidtable'
 keyboard_console_vnode *kbd_cons_vnode;     // global keyboard/console vnode
+
+
+// proc_group::proc_group()
+//    The constructor initializes the `proc_group` to have 
+//    PID `pid`, parent PID `ppid`, and initial page table `pt`.
+proc_group::proc_group(pid_t pid, x86_64_pagetable* pt) {
+    // ensure initialized page table
+    assert(!(reinterpret_cast<uintptr_t>(pt) & PAGEOFFMASK));
+    assert(pt->entry[256] == early_pagetable->entry[256]);
+    assert(pt->entry[511] == early_pagetable->entry[511]);
+
+    pid_ = pid;
+    pagetable_ = pt;
+}
+
+void proc_group::add_child(proc_group* pg) {
+    pg->ppid_ = pid_;
+    children_.push_front(pg);
+}
+
+void proc_group::remove_child(proc_group* pg) {
+    assert(pg->ppid_ == pid_);
+    children_.erase(pg);
+}
+
+// proc_group::add_proc(p)
+//    Add a new process to this process group
+void proc_group::add_proc(proc* p) {
+    assert(p->pg_ == this);
+
+    spinlock_guard g(lock_);
+    procs_.push_front(p);
+}
 
 // proc::proc()
 //    The constructor initializes the `proc` to empty.
@@ -18,9 +51,9 @@ proc::proc() {
 
 // proc::init_user(pid, pt)
 //    Initialize this `proc` as a new runnable user process with PID `pid`
-//    and initial page table `pt`.
+//    and process group `pg`
 
-void proc::init_user(pid_t pid, x86_64_pagetable* pt) {
+void proc::init_user(pid_t pid, proc_group* pg) {
     uintptr_t addr = reinterpret_cast<uintptr_t>(this);
     assert(!(addr & PAGEOFFMASK));
     // ensure layout `k-exception.S` expects
@@ -28,13 +61,9 @@ void proc::init_user(pid_t pid, x86_64_pagetable* pt) {
     assert(reinterpret_cast<uintptr_t>(&regs_) == addr + 8);
     assert(reinterpret_cast<uintptr_t>(&yields_) == addr + 16);
     assert(reinterpret_cast<uintptr_t>(&pstate_) == addr + 24);
-    // ensure initialized page table
-    assert(!(reinterpret_cast<uintptr_t>(pt) & PAGEOFFMASK));
-    assert(pt->entry[256] == early_pagetable->entry[256]);
-    assert(pt->entry[511] == early_pagetable->entry[511]);
 
     id_ = pid;
-    pagetable_ = pt;
+    pg_ = pg;
     pstate_ = proc::ps_runnable;
 
     regs_ = reinterpret_cast<regstate*>(addr + PROCSTACK_SIZE) - 1;
@@ -55,7 +84,6 @@ void proc::init_kernel(pid_t pid, void (*f)()) {
     assert(!(addr & PAGEOFFMASK));
 
     id_ = pid;
-    pagetable_ = early_pagetable;
     pstate_ = proc::ps_runnable;
 
     regs_ = reinterpret_cast<regstate*>(addr + PROCSTACK_SIZE) - 1;
@@ -247,12 +275,13 @@ void proc::wake() {
 // proc::init_fd_table()
 //      initializes the process' file descriptor table.
 //      sets first three entries to be stdin, stdou, and stderr respectively
-void proc::init_fd_table() {
+void proc_group::init_fd_table() {
     if(!kbd_cons_vnode) {
         kbd_cons_vnode = knew<keyboard_console_vnode>();
         assert(kbd_cons_vnode);
     }
     for(int fd = 0; fd < 3; ++fd) {
+        assert(!fd_table_[fd]);
         fd_table_[fd] = knew<file_descriptor>(file_descriptor::kbd_cons_t, OF_READ | OF_WRITE, kbd_cons_vnode);
         assert(fd_table_[fd]);
     }

@@ -11,10 +11,12 @@
 #error "kernel.hh should not be used by process code."
 #endif
 struct proc;
+struct proc_group;
 struct yieldstate;
 struct proc_loader;
 struct elf_program;
 struct vnode;
+struct file_descriptor;
 #define PROC_RUNNABLE 1
 #define PROC_CANARY 0xabcdef
 #define FDS_COUNT 32
@@ -23,42 +25,32 @@ struct vnode;
 //
 //    Functions, constants, and definitions for the kernel.
 
-
-// Process descriptor type
+// Process (i.e., Thread) descriptor type
 struct __attribute__((aligned(4096))) proc {
     enum pstate_t {
         ps_blank = 0,
         ps_runnable = PROC_RUNNABLE,
-        ps_nonrunnable,
+        ps_exiting,
         ps_faulted,
         ps_blocked
     };
 
     // These four members must come first:
     pid_t id_ = 0;                             // Thread ID
-    pid_t ppid_;                               // Parents process ID
     regstate* regs_ = nullptr;                 // Process's current registers
     yieldstate* yields_ = nullptr;             // Process's current yield state
     std::atomic<int> pstate_ = ps_blank;       // Process state
-    pid_t pid_ = 0;                            // Process ID
-    int exit_status_;                          // Process exit status
+    proc_group* pg_;                           // Process' group
     std::atomic<bool> sleeping_ = false;       // Whether the process is sleeping
     std::atomic<bool> interrupted_ = false;    // The process was interrupted while sleeping
     unsigned long resume_count_ = 0;           // How many times the process has resumed
-
-    x86_64_pagetable* pagetable_ = nullptr;    // Process's page table
     uintptr_t recent_user_rip_ = 0;            // Most recent user-mode %rip
 #if HAVE_SANITIZERS
     int sanitizer_status_ = 0;
 #endif
 
-    list_links runq_links_;
-
-    list_links children_links_;
-
-    list<proc, &proc::children_links_> children_;
-
-    struct file_descriptor* fd_table_[FDS_COUNT] = {nullptr};
+    list_links runq_link_;                     // cpustate::runq link
+    list_links link_;                          // proc_group::threads link
 
     proc();
     NO_COPY_OR_ASSIGN(proc);
@@ -66,10 +58,9 @@ struct __attribute__((aligned(4096))) proc {
     inline bool contains(uintptr_t addr) const;
     inline bool contains(void* ptr) const;
 
-    void init_user(pid_t pid, x86_64_pagetable* pt);
+    void init_user(pid_t pid, proc_group* pg);
     void init_kernel(pid_t pid, void (*f)());
-    void init_fd_table();
-    
+
     int fd_alloc(int type, int flags, vnode* v);
 
     static int load(proc_loader& ld);
@@ -90,7 +81,7 @@ struct __attribute__((aligned(4096))) proc {
     void syscall_exit(int status);
     pid_t syscall_getppid(regstate* regs);
     pid_t syscall_waitpid(pid_t pid, int* status, int options);
-    pid_t kill_zombie(proc* zombie, int* status);
+    pid_t kill_zombie(proc_group* zombie, int* status);
 
     int syscall_nasty();
 
@@ -126,10 +117,36 @@ public:
 #define NPROC 16
 extern proc* ptable[NPROC];
 extern spinlock ptable_lock;
-extern proc* pidtable[NPROC];
-extern spinlock pidtable_lock;
+extern proc_group* pgtable[NPROC];
+extern spinlock pgtable_lock;
 extern struct keyboard_console_vnode* kbd_cons_vnode;
 #define PROCSTACK_SIZE 4096UL
+
+// Process group (i.e., Process) descriptor type
+struct proc_group {
+    proc_group(pid_t pid, x86_64_pagetable* pt);
+
+    pid_t pid_ = 0;                                 // Process ID
+    pid_t ppid_;                                    // Parents process ID
+    x86_64_pagetable* pagetable_ = nullptr;         // Process's page table
+    int exit_status_;                               // Process exit status
+    std::atomic<bool> exiting_ = false;             // Flag determining whether group should exit
+
+    list_links link_;
+    list<proc_group, &proc_group::link_> children_; // this process' child processes
+
+    list<proc, &proc::link_> procs_;                // this process' threads
+
+    struct file_descriptor* fd_table_[FDS_COUNT] = {nullptr};
+
+    // TODO: what else?
+    spinlock lock_;                                 // protects pagetable_, 
+    void init_fd_table();
+    void add_proc(proc* p);
+    void add_child(proc_group* pg);
+    void remove_child(proc_group* pg);
+    bool is_zombie();
+};
 
 
 struct proc_loader {
@@ -154,7 +171,7 @@ struct __attribute__((aligned(4096))) cpustate {
     int cpuindex_;
     int lapic_id_;
 
-    list<proc, &proc::runq_links_> runq_;
+    list<proc, &proc::runq_link_> runq_;
     spinlock runq_lock_;
     unsigned long nschedule_;
     proc* idle_task_;
