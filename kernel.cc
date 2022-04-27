@@ -160,6 +160,7 @@ void boot_process_start(pid_t pid, const char* name) {
     p->regs_->reg_rip = ld.entry_rip_;
     pg->add_proc(p);
 
+
     void* stkpg = kalloc(PAGESIZE);
     assert(stkpg);
     vmiter(p, MEMSIZE_VIRTUAL - PAGESIZE).map(stkpg, PTE_PWU);
@@ -1073,6 +1074,7 @@ bool is_path_valid(proc* p, const char* pathname) {
 }
 
 int proc::syscall_execv(uintptr_t program_name, const char* const* argv, size_t argc) {
+    log_printf("syscall_execv this: %p\n", this);
     // validate program name
     if(!is_path_valid(this, reinterpret_cast<const char*>(program_name))) {
         return E_FAULT;
@@ -1114,7 +1116,7 @@ int proc::syscall_execv(uintptr_t program_name, const char* const* argv, size_t 
         kfree_pagetable(pt);
         return r;
     }
-    
+
     // map the user level stack at address MEMSIZE_VIRTUAL
     void* stackpg = kalloc(PAGESIZE);
     if(!stackpg || vmiter(pt, MEMSIZE_VIRTUAL - PAGESIZE).try_map(stackpg, PTE_PWU) < 0) {
@@ -1153,8 +1155,8 @@ int proc::syscall_execv(uintptr_t program_name, const char* const* argv, size_t 
     x86_64_pagetable *old_pt = pg_->pagetable_;
 
     // reset this process to have pagetable 'pt'
-    // TODO: make sure we didn't break anything
     pg_->pagetable_ = pt;
+    init_user(id_, pg_);
 
     // set the registers
     regs_->reg_rbp = MEMSIZE_VIRTUAL;
