@@ -115,6 +115,7 @@ static void test1() {
 
 
 static int thread2a(void*) {
+    console_printf("thread2\n");
     // this blocks forever
     char buf[20];
     ssize_t n = sys_read(pfd[0], buf, sizeof(buf));
@@ -130,6 +131,7 @@ static void test2() {
     );
     int r = sys_page_alloc(stack1);
     assert_eq(r, 0);
+    
 
     pid_t t = sys_clone(thread2a, pfd, stack1 + PAGESIZE);
     assert_gt(t, 0);
@@ -176,13 +178,18 @@ void process_main() {
     message("checking that exit exits all threads");
     int r = sys_pipe(pfd);
     assert_eq(r, 0);
+    sys_logprocs();
     p = sys_fork();
+
+    message("fork");
     assert_ge(p, 0);
     if (p == 0) {
         test2();
     }
     int status = 0;
+    message("start waitpid");
     ch = sys_waitpid(p, &status);
+    message("done waitpid");
     assert_eq(ch, p);
     assert_eq(status, 161);
 
@@ -207,7 +214,7 @@ void process_main() {
     assert_eq(ch, p);
     assert_eq(status, 161);
 
-
     console_printf("testthread succeeded.\n");
+
     sys_exit(0);
 }

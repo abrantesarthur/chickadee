@@ -61,7 +61,7 @@ inline void waiter::wake() {
 
 
 // waiter::block_until(wq, predicate)
-//    Block on `wq` until `predicate()` returns true.
+//    Block on `wq` until `predicate()` returns true or process group is exiting.
 template <typename F>
 inline void waiter::block_until(wait_queue& wq, F predicate) {
     while (true) {

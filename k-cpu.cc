@@ -79,8 +79,10 @@ void cpustate::schedule(proc* yielding_from) {
     assert(is_cli());              // interrupts are currently disabled
     assert(spinlock_depth_ == 0);  // no spinlocks are held
 
-    // check if current process should exit
-    if(current_ && current_->pg_->exiting_) {
+    // if 'current_' should exit but didn't call 'sys_exit', set its state to exiting.
+    // whoever called 'sys_exit' will set its state to exiting in 'sys_exit'
+    if(current_ && current_->pg_->who_exited_ && current_->pg_->who_exited_ != current_) {
+        // set its state to exiting
         current_->pstate_ = proc::ps_exiting;
         // wake process that called exit
         proc_group_exiting_wq.wake_all();

@@ -130,7 +130,7 @@ struct proc_group {
     pid_t ppid_;                                    // Parents process ID
     x86_64_pagetable* pagetable_ = nullptr;         // Process's page table
     int exit_status_;                               // Process exit status
-    std::atomic<bool> exiting_ = false;             // Flag determining whether group should exit
+    std::atomic<proc*> who_exited_ = nullptr;       // Which process exited the process group
 
     list_links link_;
     list<proc_group, &proc_group::link_> children_; // this process' child processes

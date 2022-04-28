@@ -46,12 +46,20 @@ void print_processes() {
     for(int i = 0; i < NPROC; ++i) {
         proc_group *parent = pgtable[i];
         proc_group *child;
+        proc* thread;
         if(parent) {
-            log_printf("%d -> | ", parent->pid_);
+            // print child processes
+            log_printf("P%d -> | ", parent->pid_);
             child = parent->children_.front();
             while(child) {
-                log_printf("%d | ", child->pid_);
+                log_printf("P%d | ", child->pid_);
                 child = parent->children_.next(child);
+            }
+            log_printf("\n\t  | ");
+            thread = parent->procs_.front();
+            while(thread) {
+                log_printf("T%d | ", thread->id_);
+                thread = parent->procs_.next(thread);
             }
             log_printf("\n");
         }
@@ -211,7 +219,10 @@ void proc::exception(regstate* regs) {
             if (cpu->cpuindex_ == 0) {
                 tick();
             }
+            // wake sleeping processes
             sleep_wqs[ticks % SLEEP_WQS_COUNT].wake_all();
+            // wake exiting processes
+            proc_group_exiting_wq.wake_all();
             lapicstate::get().ack();
             regs_ = regs;
             yield_noreturn();
@@ -266,8 +277,11 @@ void proc::exception(regstate* regs) {
 //    process in `%rax`.
 uintptr_t proc::syscall(regstate* regs) {
      // yield if process group is exiting
-     // cpustate::schedule setting this state to ps_exiting
-    if(pg_->exiting_) {
+     // cpustate::schedule will set this process state to ps_exiting
+    auto irqs = pg_->lock_.lock();
+    proc* e = pg_->who_exited_;
+    pg_->lock_.unlock(irqs);
+    if(e != nullptr) {
         yield_noreturn();
         // this won't be reached
     }
@@ -397,16 +411,9 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
             waiter w;
             // sleep until wakeup time, or thread is interrupted, or should exit
             w.block_until(sleep_wqs[wakeup_time % SLEEP_WQS_COUNT], [&] () {
-                return (long(wakeup_time - ticks) < 0 || interrupted_ || pg_->exiting_);
+                return (long(wakeup_time - ticks) < 0 || interrupted_);
             });
             sleeping_ = false;
-
-            // if process group is exiting, yield.
-            // cpustate::schedule will be called and set state to ps_exiting
-            if(pg_->exiting_) {
-                yield_noreturn();
-                // this won't be reached
-            }
 
             if(interrupted_) {
                 interrupted_ = false;
@@ -457,6 +464,11 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
 
         case SYSCALL_TEXIT: {
             return syscall_texit(regs->reg_rdi);
+        }
+
+        case SYSCALL_LOGPROCS: {
+            print_processes();
+            return 0;
         }
 
         default:
@@ -517,8 +529,6 @@ int proc::syscall_fork(regstate* regs) {
     }
     pgtable[child_pid] = pg;
     pg_->add_child(pg);
-
-    // TODO: this is where most of the syscall_clone functionality will start
 
     proc* p;
     pid_t child_id;
@@ -593,7 +603,6 @@ int proc::syscall_fork(regstate* regs) {
         // remove process from ptable
         ptable[child_id] = nullptr;
         // free memory pages allocated in previous iterations
-        // TODO: in syscall_clone, don't free memory if other threads are still executing
         kfree_mem(p);
         // free process page (struct proc and kernel stack)
         kfree(p);
@@ -658,9 +667,25 @@ pid_t proc::syscall_clone(regstate* regs) {
 //      and waking up its parent so it can finish the exit process.
 void proc::syscall_exit(int status) {
     {
-        // synchronize access to pstate_ and to ppid_
+        // synchronize access to pstate_, ppid_, and proc_group::children_
         // TODO: protect pstate_ with a less generic lock
         spinlock_guard guard(ptable_lock);
+
+        // protect access to pg_ properties
+        auto pg_lock_irqs = pg_->lock_.lock();
+
+        // if process group is already exiting, simply yield. This proc
+        // will set its status to ps_exiting in cpustate::schedule()
+        // TODO: test this case: two threads exiting at the same time
+        if(pg_->who_exited_ != nullptr) {
+            guard.lock_.unlock(guard.irqs_);
+            yield_noreturn();
+            // this won't be reached
+        }
+
+        // flag process group as exiting. This signals other processes
+        // in the group to set their state to ps_exiting in cpustate::schedule()s
+        pg_->who_exited_ = this;
 
         // reparent process group' children
         proc_group* child_group = pg_->children_.pop_front();
@@ -670,26 +695,33 @@ void proc::syscall_exit(int status) {
             child_group = pg_->children_.pop_front();
         }
 
-        // flag process group as exiting. This signals remaining processes
-        // in the process group to set their state to ps_exiting. They do 
-        // so in cpustate::schedule. It also wakes a sleeping process.
-        pg_->exiting_ = true;
+        pg_->lock_.unlock(pg_lock_irqs);
 
         // block until all other processes (i.e., threads) have exited
         waiter w;
         w.block_until(proc_group_exiting_wq, [&] () {
             proc* p = pg_->procs_.front();
             assert(p);
-            while(p) {
-                if(p != this && p->pstate_ != ps_exiting) {
+            while(p && p != this) {
+                // if 'p' is blocked, wake it up so it can switch its state to ps_exiting
+                if(p->pstate_ == ps_blocked) {
+                    // it may happen that 'p' will block, but just hasn't yet, so waking
+                    // it up will have not effect. Hence, the predicate will fail and this
+                    // process will block. This is okay, though, since whenever a timer 
+                    // interrupt happens we wake this process, so it can rerun the predicate
+                    // By then, 'p' should be already blocked and we'll wake it up.
+                    p->wake();
                     return false;
                 }
+                
+                if(p->pstate_ != ps_exiting) {
+                    return false;
+                }
+
                 p = pg_->procs_.next(p);
             }
             return true;
         }, guard);
-
-        // TODO: prevent cloning if a process group is exiting
 
         // set the state of this process as ps_exiting
         // parent will finish exit process
@@ -724,6 +756,63 @@ void proc::syscall_exit(int status) {
 
     yield_noreturn();
 }
+
+// TODO: try to integrate this with syscall_exit
+pid_t proc::syscall_texit(int status) {
+    {
+        // synchronize access to pstate_ and to ppid_
+        // TODO: protect pstate_ with a less generic lock
+        spinlock_guard guard(ptable_lock);
+
+        // set the state of this process as ps_exiting
+        // parent will finish exit process in sys_waitpid
+        pstate_ = ps_exiting;
+
+        // set exit status to be retrieved later when parent calls waitpid
+        pg_->exit_status_ = status;
+
+        // if there are no other threads in this process group
+        proc* p = pg_->procs_.front();
+        assert(p);
+        p = pg_->procs_.next(p);
+        if(!p) {
+            assert(p == this);
+            // reparent process group' children
+            proc_group* child_group = pg_->children_.pop_front();
+            while(child_group) {
+                child_group->ppid_ = init_process->pg_->pid_;
+                init_process->pg_->children_.push_front(child_group);
+                child_group = pg_->children_.pop_front();
+            }
+
+            //close process group's file descriptor table
+            for(int fd = 0; fd < FDS_COUNT; fd++) {
+                syscall_close(fd);
+            }
+
+            // free process' user-acessible memory
+            kfree_mem(this);
+        }
+
+        // iterate over threads in parent process
+        proc_group* parent = pgtable[pg_->ppid_];
+        p = parent->procs_.front();
+        while(p) {
+            // interrupt a thread if it's sleeping
+            if(p->sleeping_) {
+                p->interrupted_ = true;
+            }
+
+            // wake thread if it's waiting for child process to exit
+            wait_child_exit_wq.wake_proc(p);
+
+            p = parent->procs_.next(p);
+        }
+    }
+
+    yield_noreturn();
+}
+
 
 // kill_zombie(zombie, status)
 //      removes zombie from ptable and from parent's children's list.
@@ -841,6 +930,7 @@ pid_t proc::syscall_waitpid(pid_t pid, int* status, int options) {
             w.block_until(wait_child_exit_wq, [&] () {
                 return child->is_zombie();
             }, g);
+
             return kill_zombie(child, status);
         }
     }
@@ -854,7 +944,7 @@ pid_t proc::syscall_waitpid(pid_t pid, int* status, int options) {
 uintptr_t proc::syscall_read(regstate* regs) {
     // This is a slow system call, so allow interrupts by default
     sti();
-
+    
     int fd = regs->reg_rdi;
     uintptr_t addr = regs->reg_rsi;
     size_t sz = regs->reg_rdx;
@@ -1120,7 +1210,6 @@ bool is_path_valid(proc* p, const char* pathname) {
 }
 
 int proc::syscall_execv(uintptr_t program_name, const char* const* argv, size_t argc) {
-    log_printf("syscall_execv this: %p\n", this);
     // validate program name
     if(!is_path_valid(this, reinterpret_cast<const char*>(program_name))) {
         return E_FAULT;
@@ -1375,11 +1464,6 @@ static void memshow() {
             "                          [All processes have exited]\n"
             "\n\n\n\n\n\n\n\n\n\n\n");
     }
-}
-
-pid_t proc::syscall_texit(int status) {
-    console_printf("syscall_texit");
-    return 0;
 }
 
 // tick()

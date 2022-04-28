@@ -7,11 +7,31 @@ Leave your name out of this file. Put collaboration notes and credit in
 
 ##### Synchronization invariants
 
-###### pgtable_lock
+###### lock interleavings
 
 - If `ptable_lock` and `pgtable_lock` are simultaneously locked, `ptable_lock` must always be locked first.
 
-  This is so we avoid deadlocking issues due to `proc::syscall_fork` grabbing `pgtable_lock` first.
+  This is so we avoid deadlocking issues due to `proc::syscall_fork` grabbing `ptable_lock` first.
+
+- If `ptable_lock` and `proc_group::lock_` are simultaneously locked, `ptable_lock` must always be locked first.
+
+  This is so we avoid deadlocking issues due to `proc::syscall_exit` grabbing `ptable_lock` first
+
+###### proc_group::children\_
+
+- Accessing `proc_group::children_` requires the `ptable_lock`
+
+  Remember that `ptable_lock` protects everything related to process hierarchy.
+
+###### proc_group::who_exited\_
+
+- Accessing `proc_group::who_exited_` requires the `proc_group::lock_`
+
+  This prevents racing conditions in `syscall_exit`, if two threads try to exit at the same time.
+
+- It starts as `nullptr` and can only modified once by the thread who calls `sys_exit` first
+
+  This ensures that the thread who called `sys_exit` sets its own state to `ps_exiting` after all other threads have exited, as opposed to havign its state set to `ps_exiting` in `cpustate::schedule`.
 
 ## Questions
 
@@ -20,6 +40,9 @@ Leave your name out of this file. Put collaboration notes and credit in
 
 ## To do
 
+- sync access to pg\_->exiting\_ and write invariants about it
+- pg\_->exiting\_ invariant: it can only be switched once by the first process who exits
+- prevent forking and cloning if exiting\_ flag is set
 - mark idle tasks and process groups in `refresh`
 - write invariants for `proc*group::is_exiting`: ps_exiting can only move from false to true!
 - fix handle make NCPU=1 run-testkalloc error (line 666 in kernel.cc)

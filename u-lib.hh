@@ -333,6 +333,10 @@ inline int sys_wildalloc(int tc) {
     return make_syscall(SYSCALL_WILDALLOC, tc);
 }
 
+inline int sys_logprocs() {
+    return make_syscall(SYSCALL_LOGPROCS);
+}
+
 // dprintf(fd, format, ...)
 //    Construct a string from `format` and pass it to `sys_write(fd)`.
 //    Returns the number of characters printed, or E_2BIG if the string
