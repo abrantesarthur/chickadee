@@ -299,6 +299,9 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
             break;  // will not be reached
 
         case SYSCALL_GETPID:
+            return pg_->pid_;
+
+        case SYSCALL_GETTID:
             return id_;
 
         case SYSCALL_YIELD:
@@ -341,6 +344,9 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
 
         case SYSCALL_FORK:
             return syscall_fork(regs);
+
+        case SYSCALL_CLONE: 
+            return syscall_clone(regs);
 
         case SYSCALL_NASTY:
             return syscall_nasty();
@@ -449,10 +455,6 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
             return syscall_wildalloc(regs);
         }
 
-        case SYSCALL_CLONE: {
-            return syscall_clone();
-        }
-
         case SYSCALL_TEXIT: {
             return syscall_texit(regs->reg_rdi);
         }
@@ -478,6 +480,7 @@ int proc::syscall_nasty() {
 // proc::syscall_fork(regs)
 //    Handle fork system call.
 // TODO: implement copy-on-write (see lecture 09)
+// TODO: make use of syscall_clone
 int proc::syscall_fork(regstate* regs) {
     // protect access to ptable
     spinlock_guard ptable_guard(ptable_lock);
@@ -604,6 +607,49 @@ int proc::syscall_fork(regstate* regs) {
     bad_fork_free_pagetable:
         kfree_pagetable(pagetable);
     return E_NOMEM;
+}
+
+pid_t proc::syscall_clone(regstate* regs) {
+    // protect access to ptable
+    spinlock_guard ptable_guard(ptable_lock);
+
+    proc* p;
+    pid_t child_id;
+    pid_t i;
+    // look for available thread pid
+    for (i = 1; i < NPROC; ++i) {
+        if (!ptable[i]) {
+            child_id = i;
+            break;
+        }
+    }
+
+    // return error if out of pids
+    if (i == NPROC) {
+        return E_NOMEM;
+    }
+
+    // allocate process and assign found pid to it
+    p = knew<proc>();
+    if (!p) {
+        return E_NOMEM;
+    }
+    ptable[child_id] = p;
+
+    // initialize process and add it to this process group
+    p->init_user(child_id, pg_);
+    pg_->add_proc(p);
+
+    // copy parent's register state
+    memcpy(reinterpret_cast<void*>(p->regs_), reinterpret_cast<void*>(regs), sizeof(regstate));
+
+    // set %rax so 0 gets returned to child
+    p->regs_->reg_rax = 0;
+
+    // add child to a cpu
+    cpus[child_id % ncpu].enqueue(p);
+    
+    return child_id;
 }
 
 // syscall_exit(status)
@@ -1329,11 +1375,6 @@ static void memshow() {
             "                          [All processes have exited]\n"
             "\n\n\n\n\n\n\n\n\n\n\n");
     }
-}
-
-pid_t proc::syscall_clone() {
-    console_printf("syscall_clone");
-    return 0;
 }
 
 pid_t proc::syscall_texit(int status) {

@@ -95,7 +95,7 @@ struct __attribute__((aligned(4096))) proc {
     int syscall_open(const char* pathname, int flags);
     ssize_t syscall_lseek(int fd, off_t off, int whence);
     void try_close_pipe(file_descriptor* f);
-    pid_t syscall_clone();
+    pid_t syscall_clone(regstate* regs);
     pid_t syscall_texit(int status);
 
     // buddy allocator test syscalls
