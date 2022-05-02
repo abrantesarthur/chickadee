@@ -1190,13 +1190,16 @@ uintptr_t proc::syscall_pipe() {
     return (wfd_cast << 32) | rfd;
 }
 
-bool is_path_valid(proc* p, const char* pathname) {
-    if(!pathname) {
+// is_address_user_accessible(addr, len)
+//      checks whether the address range starting at 'addr' and ending
+//      at 'len' is present and useraccessible
+bool proc::is_address_user_accessible(uintptr_t addr, size_t len) {
+    if(!addr) {
         return false;
     }
-    vmiter it(p, reinterpret_cast<uintptr_t>(pathname));
+    vmiter it(this, reinterpret_cast<uintptr_t>(addr));
     uintptr_t init_va = it.va();
-    for(; it.va() < (init_va + chkfs::maxnamelen + 1) && it.va() < MEMSIZE_VIRTUAL; it += 1) {
+    for(; it.va() < (init_va + len + 1) && it.va() < MEMSIZE_VIRTUAL; it += 1) {
         if(!it.user() || !it.present()) {
             return false;
         }
@@ -1211,7 +1214,7 @@ bool is_path_valid(proc* p, const char* pathname) {
 
 int proc::syscall_execv(uintptr_t program_name, const char* const* argv, size_t argc) {
     // validate program name
-    if(!is_path_valid(this, reinterpret_cast<const char*>(program_name))) {
+    if(!is_address_user_accessible(program_name, chkfs::maxnamelen)) {
         return E_FAULT;
     }
 
@@ -1312,7 +1315,8 @@ int proc::syscall_execv(uintptr_t program_name, const char* const* argv, size_t 
 }
 
 int proc::syscall_open(const char* pathname, int flags) {
-    if(!is_path_valid(this, pathname)) return E_FAULT;
+    if(!is_address_user_accessible(
+        reinterpret_cast<uintptr_t>(pathname), chkfs::maxnamelen)) return E_FAULT;
     if(!sata_disk) return E_IO;
 
     // read file from disk's root directory
@@ -1478,4 +1482,43 @@ void tick() {
     if (consoletype == CONSOLE_MEMVIEWER) {
         memshow();
     }
+}
+
+
+
+/**
+ * FUTEX
+ *  keep a hash table keyed by the address (virtual of physycal?) to find the proper queue data
+ *  structure and add the calling process to the wait queue.
+ * 
+ * the kernel will block only if the futex word has the value that the calling thread supplied
+ * as the expected value of the futex word
+ * 
+ * loading the futex word's value, comparing that value with the expected value, and the actual
+ * blocking are done atomically
+ * 
+ */
+
+// TODO: support timeout
+int proc::syscall_futex(uintptr_t addr, int futex_op, int val) {
+    // check that the address is valid user space
+
+
+    // get physical address
+
+    // access a global futex hastable keyed by physical address.
+    // Each entry is a wait queue of processes waiting on that address
+
+    // beginning of critical area (use a global futex_lock shared by all processes)
+        // load the futex 32-bit word value at 'addr'
+
+        // compare the value with the expected 'val'
+
+        // block if value at addr equals 'val'
+
+                // block at the waitqueue in the hashtable entry of 'addr'
+
+    // end of critical area
+
+    return 0;
 }

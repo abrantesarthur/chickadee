@@ -50,7 +50,8 @@ KERNEL_OBJS = $(OBJDIR)/k-exception.ko \
 	$(OBJDIR)/crc32c.ko \
 	$(OBJDIR)/k-ahci.ko $(OBJDIR)/k-chkfs.ko $(OBJDIR)/k-chkfsiter.ko \
 	$(OBJDIR)/k-memviewer.ko $(OBJDIR)/lib.ko $(OBJDIR)/k-initfs.ko \
-	$(OBJDIR)/k-pages.ko $(OBJDIR)/k-vfs.ko $(OBJDIR)/k-tests.ko 
+	$(OBJDIR)/k-pages.ko $(OBJDIR)/k-vfs.ko $(OBJDIR)/k-tests.ko \
+	$(OBJDIR)/k-futex.ko
 
 PROCESSES ?= $(patsubst %.cc,%,$(wildcard p-*.cc))
 

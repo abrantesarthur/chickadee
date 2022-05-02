@@ -7,6 +7,7 @@
 #include "k-memrange.hh"
 #include "k-waitstruct.hh"
 #include "k-vfs.hh"
+#include "k-futex.hh"
 #if CHICKADEE_PROCESS
 #error "kernel.hh should not be used by process code."
 #endif
@@ -97,10 +98,14 @@ struct __attribute__((aligned(4096))) proc {
     void try_close_pipe(file_descriptor* f);
     pid_t syscall_clone(regstate* regs);
     pid_t syscall_texit(int status);
+    int syscall_futex(uintptr_t addr, int futex_op, int val);
+
 
     // buddy allocator test syscalls
     int syscall_testkalloc(regstate* regs);
     int syscall_wildalloc(regstate *regs);
+
+    bool is_address_user_accessible(uintptr_t addr, size_t len);
 
     void wake();
 
@@ -120,6 +125,7 @@ extern spinlock ptable_lock;
 extern proc_group* pgtable[NPROC];
 extern spinlock pgtable_lock;
 extern struct keyboard_console_vnode* kbd_cons_vnode;
+extern futex_table ftable;
 #define PROCSTACK_SIZE 4096UL
 
 // Process group (i.e., Process) descriptor type

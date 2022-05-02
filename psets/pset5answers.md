@@ -7,13 +7,13 @@ Leave your name out of this file. Put collaboration notes and credit in
 
 ##### Project
 
-###### Goal
+- `syscall_futex`
 
-- ls
-  opendir
-  readdir
-- mkdir
-- cd
+- `sys_futex`
+
+  This is the user side of things. It only calls syscall_futex if necessary. In other words, it actually checks the address before calling syscall_futex. Syscall_futex checks the address again.
+
+###### Goal
 
 ###### Design
 

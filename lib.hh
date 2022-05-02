@@ -343,6 +343,10 @@ inline bool is_error(uintptr_t r)
 #define LSEEK_END 2  // Seek from end of file
 #define LSEEK_SIZE 3 // Do not seek; return file size
 
+// sys_futex() flags
+#define FUTEX_WAIT 1
+#define FUTEX_WAKE 2
+
 // CGA console printing
 
 #define CONSOLE_COLUMNS 80
