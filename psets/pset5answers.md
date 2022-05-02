@@ -5,6 +5,24 @@ Leave your name out of this file. Put collaboration notes and credit in
 
 ## Answers to written questions
 
+##### Project
+
+###### Goal
+
+- ls
+  opendir
+  readdir
+- mkdir
+- cd
+
+###### Design
+
+###### Code
+
+###### Challenges
+
+###### How can we test?
+
 ##### Synchronization invariants
 
 ###### lock interleavings
@@ -41,7 +59,8 @@ Leave your name out of this file. Put collaboration notes and credit in
 ## To do
 
 - mark idle tasks and process groups in `refresh`
-- Protect `proc_group::ppid` with `pgtable_lock` instead of `ptable_lock` and add to synchronization invariatns
-- Determine what `proc_group::lock_` should protect (`pagetable_`, something else?)
+- protect `proct_group::pagetable_` and `fd_table`
+- Protect `proc_group::ppid` with `pgtable_lock` instead of `ptable_lock` and add to
+  synchronization invariatns
 
 ## Grading notes
