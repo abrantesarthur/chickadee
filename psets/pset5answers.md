@@ -5,27 +5,9 @@ Leave your name out of this file. Put collaboration notes and credit in
 
 ## Answers to written questions
 
-##### Project
+### Synchronization invariants
 
-- `syscall_futex`
-
-- `sys_futex`
-
-  This is the user side of things. It only calls syscall_futex if necessary. In other words, it actually checks the address before calling syscall_futex. Syscall_futex checks the address again.
-
-###### Goal
-
-###### Design
-
-###### Code
-
-###### Challenges
-
-###### How can we test?
-
-##### Synchronization invariants
-
-###### lock interleavings
+#### lock interleavings
 
 - If `ptable_lock` and `pgtable_lock` are simultaneously locked, `ptable_lock` must always be locked first.
 
@@ -35,13 +17,13 @@ Leave your name out of this file. Put collaboration notes and credit in
 
   This is so we avoid deadlocking issues due to `proc::syscall_exit` grabbing `ptable_lock` first
 
-###### proc_group::children\_
+#### proc_group::children\_
 
 - Accessing `proc_group::children_` requires the `ptable_lock`
 
   Remember that `ptable_lock` protects everything related to process hierarchy.
 
-###### proc_group::who_exited\_
+#### proc_group::who_exited\_
 
 - Accessing `proc_group::who_exited_` requires the `proc_group::lock_`
 
@@ -50,6 +32,33 @@ Leave your name out of this file. Put collaboration notes and credit in
 - It starts as `nullptr` and can only modified once by the thread who calls `sys_exit` first
 
   This ensures that the thread who called `sys_exit` sets its own state to `ps_exiting` after all other threads have exited, as opposed to havign its state set to `ps_exiting` in `cpustate::schedule`.
+
+## Project
+
+- `syscall_futex`
+
+- `sys_futex`
+
+  This is the user side of things. It only calls syscall_futex if necessary. In other words, it actually checks the address before calling syscall_futex. Syscall_futex checks the address again.
+
+### Goal
+
+### Design
+
+### Code
+
+- `u-lib.cc` contains user-accessible futex-based synchronization primitives
+- `u-lib.hh` contains user accessible `sys_futex`
+- `kernel.cc` contains `syscall_futex` function
+- `p-testfutex.cc` contains test code
+
+### Challenges
+
+### How can we test?
+
+- run `make run-testfutex`
+
+## Grading notes
 
 ## Questions
 
@@ -62,5 +71,3 @@ Leave your name out of this file. Put collaboration notes and credit in
 - protect `proct_group::pagetable_` and `fd_table`
 - Protect `proc_group::ppid` with `pgtable_lock` instead of `ptable_lock` and add to
   synchronization invariatns
-
-## Grading notes

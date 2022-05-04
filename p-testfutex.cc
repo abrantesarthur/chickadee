@@ -253,9 +253,6 @@ void process_main() {
     assert_eq(ch, p);
     assert_eq(status, 3);
 
-   
-
-
     // TODO: test that if a thread is killed by a parent, it is also removed from the waitqueue
 
     console_printf("testfutex succeeded.\n");
