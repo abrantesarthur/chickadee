@@ -8,8 +8,6 @@ int pfd[2] = {-1, -1};
 int futex = 0;
 const char* msg;
 
-
-
 static void message(const char* x) {
     while (message_lock.test_and_set()) {
         pause();
@@ -208,7 +206,6 @@ static void test3() {
     sys_msleep(20);
 
     assert_memeq(msg, "no thread is still blocked\n", 27);
-
 
     // this should exit all thread3as
     sys_exit(3);

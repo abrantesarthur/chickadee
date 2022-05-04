@@ -1511,8 +1511,8 @@ int proc::syscall_futex(uintptr_t uaddr, int futex_op, int val) {
     // check that 32-bit word at 'uaddr' is valid user space
     if(!is_address_user_accessible(uaddr, 4)) return E_FAULT;
 
-    // TODO: addr must be aligned on a 4 byte boundary. Return EINVAL if not
-    // assert(sz % sectorsize == 0 && off % sectorsize == 0);
+    // uaddr must be aligned on a 4 byte boundary
+    if(uaddr % 4 != 0) return E_INVAL;
 
     if(futex_op & FUTEX_WAIT) {
         // beginning of critical area (loading, comparing, and blocking must be atomic)
