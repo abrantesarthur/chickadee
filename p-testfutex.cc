@@ -77,9 +77,14 @@ static int thread2a(void* x) {
     assert_memeq(msg, "thread2a blocked\n", 17);
     message("thread2a blocked");
 
+    assert_ne(futex, 0);
+
     // notify parent that thread2a unblocked
     msg = "thread2a unblocked\n";
+
+    sys_texit(0);
 }
+
 
 static void test2() {
     msg = "thread2a should block\n";
@@ -95,8 +100,12 @@ static void test2() {
 
     msg = "thread2a blocked\n";
 
+    // passing a 0 'val' shouldn't wake up any threads
+    int ts = sys_futex(reinterpret_cast<std::atomic<int>*>(&futex), FUTEX_WAKE, 0);
+    assert_eq(ts, 0);
+
     // wake thread2a without modifying futex
-    int ts = sys_futex(reinterpret_cast<std::atomic<int>*>(&futex), FUTEX_WAKE, 1);
+    ts = sys_futex(reinterpret_cast<std::atomic<int>*>(&futex), FUTEX_WAKE, 1);
     assert_eq(ts, 1);
 
     // sleep to make sure that thread2a has time to receive wake call
@@ -108,17 +117,17 @@ static void test2() {
 
     // wake thread2a after modifying futex
     futex = 2;
-    ts = sys_futex(reinterpret_cast<std::atomic<int>*>(&futex), FUTEX_WAKE, 1);
+    ts = sys_futex(reinterpret_cast<std::atomic<int>*>(&futex), FUTEX_WAKE, 10);
+
+    // should still wake up only one thread, even though 'val' was 10
     assert_eq(ts, 1);
 
     // sleep to make sure that thread2a unblocks
-    sys_msleep(50);
+    sys_msleep(20);
 
      // thread2 should ublocked
     assert_memeq(msg, "thread2a unblocked\n", 19);
     message("woke up thread2a as expected");
-
-    // TODO: passing more than 'val' still wakes up only the amount of threads sleeping
 
     // this should quit thread2a
     sys_exit(2);
