@@ -2,6 +2,7 @@
 #define CHICKADEE_U_LIB_HH
 #include "lib.hh"
 #include "x86-64.h"
+#include <atomic>
 #if CHICKADEE_KERNEL
 #error "u-lib.hh should not be used by kernel code."
 #endif
@@ -298,6 +299,13 @@ inline int sys_rename(const char* oldpath, const char* newpath) {
 //    Return the current thread ID.
 inline pid_t sys_gettid() {
     return make_syscall(SYSCALL_GETTID);
+}
+
+// sys_futex(path, flags, val)
+inline int sys_futex(std::atomic<int>* uaddr, int futex_op, int val) {
+    access_memory(uaddr);
+    return make_syscall(SYSCALL_FUTEX, reinterpret_cast<uintptr_t>(uaddr),
+                        futex_op, val);
 }
 
 // sys_clone(function, arg, stack_top)

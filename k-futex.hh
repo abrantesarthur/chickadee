@@ -9,16 +9,24 @@
 #define FUTEX_TABLE_SIZE 50
 
 struct futex_entry {
-    uintptr_t addr_ = 0;          // physical address
-    wait_queue wq_;               // processes that care about the value at 'addr'
+    inline futex_entry(int* kptr) : kptr_(kptr) {
+    }
+
+    int* kptr_;                                 // physical address
+    wait_queue wq_;                             // processes that care about the value at 'addr'
+    list_links link_;
 };
 
 struct futex_table {
-    spinlock lock_;                     // protects access to the table
+    spinlock lock_;                             // protects access to the table
+
+    wait_queue* get_wait_queue(int* kptr);
+    wait_queue* create_wait_queue(int* ktpr);
+    int wake_processes(int* kptr, int count);
 
 private:
     // TODO: future improvement: use hashtable instead
-    futex_entry table_[FUTEX_TABLE_SIZE]; 
+    list<futex_entry, &futex_entry::link_> entries_;
 };
 
 

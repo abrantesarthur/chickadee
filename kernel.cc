@@ -359,7 +359,7 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
         case SYSCALL_FORK:
             return syscall_fork(regs);
 
-        case SYSCALL_CLONE: 
+        case SYSCALL_CLONE:
             return syscall_clone(regs);
 
         case SYSCALL_NASTY:
@@ -404,7 +404,7 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
             syscall_exit(status);
             return 0;
         }
-        
+
         case SYSCALL_SLEEP: {
             unsigned long wakeup_time = ticks + (regs->reg_rdi + 9) / 10;
             sleeping_ = true;
@@ -453,7 +453,7 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
             int whence = regs->reg_rdx;
             return syscall_lseek(fd, off, whence);
         }
-        
+
         case SYSCALL_TESTKALLOC: {
             return syscall_testkalloc(regs);
         }
@@ -595,7 +595,7 @@ int proc::syscall_fork(regstate* regs) {
 
     // add child to a cpu
     cpus[child_id % ncpu].enqueue(p);
-    
+
     return child_id;
 
     // error handling 'goto' statements
@@ -657,7 +657,7 @@ pid_t proc::syscall_clone(regstate* regs) {
 
     // add child to a cpu
     cpus[child_id % ncpu].enqueue(p);
-    
+
     return child_id;
 }
 
@@ -707,13 +707,13 @@ void proc::syscall_exit(int status) {
                 if(p->pstate_ == ps_blocked) {
                     // it may happen that 'p' will block, but just hasn't yet, so waking
                     // it up will have not effect. Hence, the predicate will fail and this
-                    // process will block. This is okay, though, since whenever a timer 
+                    // process will block. This is okay, though, since whenever a timer
                     // interrupt happens we wake this process, so it can rerun the predicate
                     // By then, 'p' should be already blocked and we'll wake it up.
                     p->wake();
                     return false;
                 }
-                
+
                 if(p->pstate_ != ps_exiting) {
                     return false;
                 }
@@ -726,7 +726,7 @@ void proc::syscall_exit(int status) {
         // set the state of this process as ps_exiting
         // parent will finish exit process
         pstate_ = ps_exiting;
-        
+
         // set exit status to be retrieved later when parent calls waitpid
         pg_->exit_status_ = status;
 
@@ -851,7 +851,7 @@ pid_t proc::kill_zombie(proc_group* zombie, int* status) {
     // Hence, there are no synchronization conflicts with memviewer::refresh()
     kfree_pagetable(zombie->pagetable_);
     kfree(zombie);
-    
+
     return zid;
 }
 
@@ -897,7 +897,7 @@ pid_t proc::syscall_waitpid(pid_t pid, int* status, int options) {
         }
 
         // set state to blocked with lock held and release the lock before actually sleeping.
-        // this avoids the lost wakeup problem 
+        // this avoids the lost wakeup problem
         waiter w;
         w.block_until(wait_child_exit_wq, [&] () {
             child = pg_->children_.next(child);
@@ -911,7 +911,7 @@ pid_t proc::syscall_waitpid(pid_t pid, int* status, int options) {
         // now, process group has only non-runnable processes, so kill it
         return kill_zombie(child, status);
     }
-    
+
     // wait for specific child with id 'pid'
     while(child) {
         if(child->pid_ != pid) {
@@ -944,7 +944,7 @@ pid_t proc::syscall_waitpid(pid_t pid, int* status, int options) {
 uintptr_t proc::syscall_read(regstate* regs) {
     // This is a slow system call, so allow interrupts by default
     sti();
-    
+
     int fd = regs->reg_rdi;
     uintptr_t addr = regs->reg_rsi;
     size_t sz = regs->reg_rdx;
@@ -994,7 +994,7 @@ uintptr_t proc::syscall_write(regstate* regs) {
     if(!(vmiter(this, addr).range_perm(sz, PTE_P | PTE_U))) {
         return E_FAULT;
     }
-    
+
     return pg_->fd_table_[fd]->vnode_->write(pg_->fd_table_[fd], addr, sz);
 }
 
@@ -1064,7 +1064,7 @@ int proc::syscall_dup2(int fd1, int fd2) {
     if(pg_->fd_table_[fd2]) {
         syscall_close(fd2);
     }
-    
+
     // copy fd1 into fd2 and increase reference count
     pg_->fd_table_[fd2] = pg_->fd_table_[fd1];
     spinlock_guard(pg_->fd_table_[fd2]->lock_);
@@ -1092,7 +1092,7 @@ int proc::syscall_close(int fd) {
         // illegal to close a disk file while holding a write reference
         assert(reinterpret_cast<diskfile_vnode*>(f->vnode_)->ino_->entry()->write_ref_ == 0);
     }
-    
+
     // free file descriptor if not referenced by any process
     --f->ref_;
     if(!f->ref_) {
@@ -1185,7 +1185,7 @@ uintptr_t proc::syscall_pipe() {
         pg_->fd_table_[rfd] = nullptr;
         return wfd;
     }
-    
+
     uintptr_t wfd_cast = wfd;
     return (wfd_cast << 32) | rfd;
 }
@@ -1197,7 +1197,7 @@ bool proc::is_address_user_accessible(uintptr_t addr, size_t len) {
     if(!addr) {
         return false;
     }
-    vmiter it(this, reinterpret_cast<uintptr_t>(addr));
+    vmiter it(this, addr);
     uintptr_t init_va = it.va();
     for(; it.va() < (init_va + len + 1) && it.va() < MEMSIZE_VIRTUAL; it += 1) {
         if(!it.user() || !it.present()) {
@@ -1269,7 +1269,7 @@ int proc::syscall_execv(uintptr_t program_name, const char* const* argv, size_t 
         kfree_pagetable(pt);
         return E_NOMEM;
     }
-    
+
     // copy arguments into new stack
     uintptr_t args_addrs[argc];
     uintptr_t sz;
@@ -1328,7 +1328,7 @@ int proc::syscall_open(const char* pathname, int flags) {
         } else {
             return E_NOENT;
         }
-    } 
+    }
 
     // allocate disk vnode
     vnode* v = knew<diskfile_vnode>(ino);
@@ -1336,7 +1336,7 @@ int proc::syscall_open(const char* pathname, int flags) {
         ino->put();
         return E_NOMEM;
     }
-    
+
     // allocate file descriptor
     int fd = fd_alloc(file_descriptor::disk_t, flags, v);
     if(fd < 0) {
@@ -1352,12 +1352,12 @@ int proc::syscall_open(const char* pathname, int flags) {
         ino->entry()->put_write();
         ino->unlock_write();
     }
-   
+
     return fd;
 }
 
-// TODO: write a test that forks a child that seeks a disk file whereas the 
-// parent writes to it to make sure that the file_descriptor wpos_ and rpos_ 
+// TODO: write a test that forks a child that seeks a disk file whereas the
+// parent writes to it to make sure that the file_descriptor wpos_ and rpos_
 // are correclty synchronized
 ssize_t proc::syscall_lseek(int fd, off_t off, int whence) {
     file_descriptor *f = pg_->fd_table_[fd];
@@ -1392,12 +1392,12 @@ ssize_t proc::syscall_lseek(int fd, off_t off, int whence) {
             if(off > 0 && size_t(off) >= fsz){
                 result = E_INVAL;
                 break;
-            } 
+            }
             f->rpos_ = off;
             f->wpos_ = off;
             result = f->rpos_;
             break;
-        } 
+        }
         case LSEEK_CUR: {   // adjust position by 'off'
             if(off > 0 && (size_t(off + f->rpos_) >= fsz || size_t(off + f->wpos_) >= fsz)) {
                 result = E_INVAL;
@@ -1426,7 +1426,7 @@ ssize_t proc::syscall_lseek(int fd, off_t off, int whence) {
 
     if(f->type_ == file_descriptor::disk_t) dv->ino_->unlock_read();
     if(f->type_ == file_descriptor::memfile_t) mv->lock_.unlock_noirq();
-    
+
     return result;
 }
 
@@ -1490,35 +1490,79 @@ void tick() {
  * FUTEX
  *  keep a hash table keyed by the address (virtual of physycal?) to find the proper queue data
  *  structure and add the calling process to the wait queue.
- * 
- * the kernel will block only if the futex word has the value that the calling thread supplied
+ *
+ * FUTEX_WAIT: the kernel will block only if the futex word has the value that the calling thread supplied
  * as the expected value of the futex word
- * 
+ *
  * loading the futex word's value, comparing that value with the expected value, and the actual
  * blocking are done atomically
- * 
+ *
  */
 
 // TODO: support timeout
-int proc::syscall_futex(uintptr_t addr, int futex_op, int val) {
-    // check that the address is valid user space
+int proc::syscall_futex(uintptr_t uaddr, int futex_op, int val) {
+    // check that 32-bit word at 'uaddr' is valid user space
+    if(!is_address_user_accessible(uaddr, 4)) return E_FAULT;
 
+    // TODO: addr must be aligned on a 4 byte boundary. Return EINVAL if not
+    // assert(sz % sectorsize == 0 && off % sectorsize == 0);
 
-    // get physical address
+    // FUTEX_WAIT
+    if(futex_op & FUTEX_WAIT) {
+        // beginning of critical area (loading, comparing, and blocking must be atomic)
+        spinlock_guard guard(ftable.lock_);
 
-    // access a global futex hastable keyed by physical address.
-    // Each entry is a wait queue of processes waiting on that address
+        // atomically load the 32-bit word at 'uaddr'
+        // TODO: this is a user address: test that this works
+        std::atomic<int>* uaddr_ = reinterpret_cast<std::atomic<int>*>(uaddr);
+        int actual_val = std::atomic_load(uaddr_);
 
-    // beginning of critical area (use a global futex_lock shared by all processes)
-        // load the futex 32-bit word value at 'addr'
+        // if value at 'uaddr' doesn't match 'val', try again
+        if(actual_val != val) return E_AGAIN;
+            
+        // otherwis,e we need to block
 
-        // compare the value with the expected 'val'
+        // get the wait_queue of processes that care about the futex in 'uaddr'
+        int* kptr = vmiter(this, uaddr).kptr<int*>();
+        wait_queue* wq = ftable.get_wait_queue(kptr);
 
-        // block if value at addr equals 'val'
+        // if not found, try allocating a new entry
+        if(!wq) wq = ftable.create_wait_queue(kptr);
 
-                // block at the waitqueue in the hashtable entry of 'addr'
+        // if failed, instruct caller to try again
+        if(!wq) return E_AGAIN;
 
-    // end of critical area
+        // block until the values match
+        waiter().block_until(*wq, [&]() {
+            actual_val = std::atomic_load(uaddr_);
+            return actual_val == val;
+        }, guard);
 
-    return 0;
+        // TODO: return EINTR if blocking was interrupted by a signal
+
+        // success
+        return 0;
+    }
+    
+    if(futex_op & FUTEX_WAKE) {
+        // beginning of critical area
+        spinlock_guard guard(ftable.lock_);
+
+        // wake 'val' processes waiting on futex in 'uaddr'
+        int* kptr = vmiter(this, uaddr).kptr<int*>();
+        int awoken = ftable.wake_processes(kptr, val);
+
+        // return number of processes woken up
+        return awoken;
+    }
+
+    // futex_op is invalid
+    return E_INVAL;
 }
+
+/**
+ * TODO
+ *      implement sys_futex
+ *      implement user-side mutex using mmap that I also have to implement
+ *
+ */

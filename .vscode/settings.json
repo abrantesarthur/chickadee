@@ -1,6 +1,7 @@
 {
     "files.associations": {
         "*.js": "javascriptreact",
+        "*.S": "asm-intel-x86-generic",
         "ctime": "cpp",
         "cwchar": "cpp",
         "__bit_reference": "cpp",
@@ -70,7 +71,16 @@
         "streambuf": "cpp",
         "type_traits": "cpp",
         "__functional_03": "cpp",
-        "__functional_base_03": "cpp"
+        "__functional_base_03": "cpp",
+        "compare": "cpp",
+        "concepts": "cpp",
+        "condition_variable": "cpp",
+        "numbers": "cpp",
+        "queue": "cpp",
+        "semaphore": "cpp",
+        "thread": "cpp",
+        "*.tcc": "cpp",
+        "stop_token": "cpp"
     },
     "C_Cpp.errorSquiggles": "Disabled"
 }

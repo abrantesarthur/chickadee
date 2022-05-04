@@ -47,7 +47,6 @@ void process_main() {
 
     unsigned nalloc = 0;
 
-    unsigned counter = 0;
     // Allocate heap pages until out of address space,
     // forking along the way.
     while (heap_top != stack_bottom) {

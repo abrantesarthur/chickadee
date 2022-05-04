@@ -128,4 +128,24 @@ inline void wait_queue::wake_proc(proc* p) {
     }
 }
 
+// wait_queue::wake_some(int count)
+//    Lock the wait queue, then wakes 'count' processes or
+//    all processes in the waitqueue, whichever is smaller.
+//    Returns number of processes awoken.
+inline int wait_queue::wake_some(int count) {
+    spinlock_guard guard(lock_);
+    int awaken = 0;
+    while (count > 0) {
+        if(auto w = q_.pop_front()) {
+            w->wake();
+            --count;
+            ++awaken;   
+        } else {
+            break;
+        } 
+    }
+    return awaken;
+}
+
+
 #endif
