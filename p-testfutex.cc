@@ -48,7 +48,6 @@ static int thread1a(void* x) {
 
 static void test1() {
     // clone a thread
-    message("clone");
     pid_t t = clone(thread1a);
     assert_gt(t, 0);
     
@@ -89,7 +88,6 @@ static int thread2a(void* x) {
 static void test2() {
     msg = "thread2a should block\n";
 
-    message("clone");
     pid_t t = clone(thread2a);
     assert_gt(t, 0);
 
@@ -129,8 +127,88 @@ static void test2() {
     assert_memeq(msg, "thread2a unblocked\n", 19);
     message("woke up thread2a as expected");
 
-    // this should quit thread2a
+    // reset futex
+    futex = 0;
+
+    // this should quit all threads
     sys_exit(2);
+}
+
+static int thread3a(void* x) {
+    message("starting thread3a");
+
+    // futex starts as 0
+    assert_eq(futex, 0);
+
+    assert_memeq(msg, "thread3a should block\n", 22);
+
+    // sys_futex should block as long as futex is still 0
+    sys_futex(reinterpret_cast<std::atomic<int>*>(&futex), FUTEX_WAIT, 0);
+
+    assert_eq(futex, 1);
+
+    msg = "thread3a unblocked\n";
+
+    sys_texit(0);
+}
+
+static void test3() {
+
+    msg = "thread3a should block\n";
+
+    // span a 4 threads
+    pid_t t1 = clone(thread3a);
+    pid_t t2 = clone(thread3a);
+    pid_t t3 = clone(thread3a);
+    pid_t t4 = clone(thread3a);
+    assert_gt(t1, 0);
+    assert_gt(t2, 0);
+    assert_gt(t3, 0);
+    assert_gt(t4, 0);
+
+    // wait for all threads to block
+    sys_msleep(20);
+
+    // when 'val' is 0, no threads should unblock
+    futex = 1;
+    int ts = sys_futex(reinterpret_cast<std::atomic<int>*>(&futex), FUTEX_WAKE, 0);
+    assert_eq(ts, 0);
+
+    sys_msleep(20);
+
+    // assert that no thread3a unblocked
+    assert_memeq(msg, "thread3a should block\n", 22);
+
+    // unblock 2 threads
+    ts = sys_futex(reinterpret_cast<std::atomic<int>*>(&futex), FUTEX_WAKE, 2);
+    assert_eq(ts, 2);
+
+    sys_msleep(20);
+
+    // assert some thread
+    assert_memeq(msg, "thread3a unblocked\n", 22);
+    
+    msg = "threads are still blocked\n";
+
+     // unblock remaining threads
+    ts = sys_futex(reinterpret_cast<std::atomic<int>*>(&futex), FUTEX_WAKE, 10);
+    // only 2 should unblock, even though 'val' was 10
+    assert_eq(ts, 2);
+
+    sys_msleep(20);
+
+    // assert some thread
+    assert_memeq(msg, "thread3a unblocked\n", 22);
+    msg = "no thread is still blocked\n";
+
+    // this shouldn't unblock any more threads
+    ts = sys_futex(reinterpret_cast<std::atomic<int>*>(&futex), FUTEX_WAKE, 10);
+    assert_eq(ts, 0);
+
+    sys_msleep(20);
+
+    // this should exit all thread3as
+    sys_exit(3);
 }
 
 void process_main() {
@@ -159,11 +237,24 @@ void process_main() {
     if(p == 0) {
         test2();
     }
-
+    
     status = 0;
     ch = sys_waitpid(p, &status);
     assert_eq(ch, p);
     assert_eq(status, 2);
+
+    p = sys_fork();
+    assert_ge(p, 0);
+    if(p == 0) {
+        test3();
+    }
+    status = 0;
+    ch = sys_waitpid(p, &status);
+    assert_eq(ch, p);
+    assert_eq(status, 3);
+
+   
+
 
     // TODO: test that if a thread is killed by a parent, it is also removed from the waitqueue
 
