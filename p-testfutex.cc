@@ -59,17 +59,6 @@ static void test1() {
 
     message("thread1a blocked");
 
-     // trying to wake up threads without modifying futex fails
-    message("try waking up thread1a");
-    int ts = sys_futex(reinterpret_cast<std::atomic<int>*>(&futex), FUTEX_WAKE, 1);
-    // tread1a is awaken to check whether 'futex' changed
-    assert_eq(ts, 1);
-
-    // thread1a will block again
-    sys_msleep(250);
-
-    message("waking up thread1a failed as expected");
-
     // this should quit thread1a
     sys_exit(1);
 }
@@ -88,8 +77,8 @@ static int thread2a(void* x) {
     assert_memeq(msg, "thread2a blocked\n", 17);
     message("thread2a blocked");
 
-    // assertion will fail if sys_futex didn't block
-    assert(false);
+    // notify parent that thread2a unblocked
+    msg = "thread2a unblocked\n";
 }
 
 static void test2() {
@@ -106,20 +95,28 @@ static void test2() {
 
     msg = "thread2a blocked\n";
 
-
-    // wake thread2a
+    // wake thread2a without modifying futex
     int ts = sys_futex(reinterpret_cast<std::atomic<int>*>(&futex), FUTEX_WAKE, 1);
-
-    // this should work even though we didn't update futex
     assert_eq(ts, 1);
 
-    // send message to child so it can verify that is blocked
-    msg = "Thread2a blocked\n";
-
-    // sleep to make suree thread2a verifies the message
+    // sleep to make sure that thread2a has time to receive wake call
     sys_msleep(50);
 
-    // TODO: test that it also works if you do update futex
+    // thread2 should remaing blocked
+    assert_memeq(msg, "thread2a blocked\n", 17);
+    message("waking up thread2a failed as expected");
+
+    // wake thread2a after modifying futex
+    futex = 2;
+    ts = sys_futex(reinterpret_cast<std::atomic<int>*>(&futex), FUTEX_WAKE, 1);
+    assert_eq(ts, 1);
+
+    // sleep to make sure that thread2a unblocks
+    sys_msleep(50);
+
+     // thread2 should ublocked
+    assert_memeq(msg, "thread2a unblocked\n", 19);
+    message("woke up thread2a as expected");
 
     // TODO: passing more than 'val' still wakes up only the amount of threads sleeping
 
