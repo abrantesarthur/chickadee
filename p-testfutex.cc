@@ -207,6 +207,9 @@ static void test3() {
 
     sys_msleep(20);
 
+    assert_memeq(msg, "no thread is still blocked\n", 27);
+
+
     // this should exit all thread3as
     sys_exit(3);
 }
