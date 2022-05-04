@@ -471,6 +471,13 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
             return 0;
         }
 
+        case SYSCALL_FUTEX: {
+            uintptr_t uaddr = regs->reg_rdi;
+            int futex_op = regs->reg_rsi;
+            int val = regs->reg_rdx;
+            return syscall_futex(uaddr, futex_op, val);
+        }
+
         default:
             // no such system call
             log_printf("%d: no such system call %u\n", id_, regs->reg_rax);
@@ -1507,7 +1514,6 @@ int proc::syscall_futex(uintptr_t uaddr, int futex_op, int val) {
     // TODO: addr must be aligned on a 4 byte boundary. Return EINVAL if not
     // assert(sz % sectorsize == 0 && off % sectorsize == 0);
 
-    // FUTEX_WAIT
     if(futex_op & FUTEX_WAIT) {
         // beginning of critical area (loading, comparing, and blocking must be atomic)
         spinlock_guard guard(ftable.lock_);
@@ -1517,10 +1523,11 @@ int proc::syscall_futex(uintptr_t uaddr, int futex_op, int val) {
         std::atomic<int>* uaddr_ = reinterpret_cast<std::atomic<int>*>(uaddr);
         int actual_val = std::atomic_load(uaddr_);
 
+
         // if value at 'uaddr' doesn't match 'val', try again
         if(actual_val != val) return E_AGAIN;
             
-        // otherwis,e we need to block
+        // otherwis, we need to block
 
         // get the wait_queue of processes that care about the futex in 'uaddr'
         int* kptr = vmiter(this, uaddr).kptr<int*>();
@@ -1529,13 +1536,14 @@ int proc::syscall_futex(uintptr_t uaddr, int futex_op, int val) {
         // if not found, try allocating a new entry
         if(!wq) wq = ftable.create_wait_queue(kptr);
 
+
         // if failed, instruct caller to try again
         if(!wq) return E_AGAIN;
 
-        // block until the values match
+        // block until woken up by another thread, which must modify 'actual_val' 
         waiter().block_until(*wq, [&]() {
             actual_val = std::atomic_load(uaddr_);
-            return actual_val == val;
+            return actual_val != val;
         }, guard);
 
         // TODO: return EINTR if blocking was interrupted by a signal

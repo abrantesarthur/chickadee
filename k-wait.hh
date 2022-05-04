@@ -135,6 +135,7 @@ inline void wait_queue::wake_proc(proc* p) {
 inline int wait_queue::wake_some(int count) {
     spinlock_guard guard(lock_);
     int awaken = 0;
+    log_printf("count: %d\n", count);
     while (count > 0) {
         if(auto w = q_.pop_front()) {
             w->wake();

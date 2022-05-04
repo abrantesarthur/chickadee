@@ -1,4 +1,5 @@
 #include "kernel.hh"
+#include "k-wait.hh"
 
 // global futex table
 futex_table ftable;
@@ -15,7 +16,7 @@ int futex_table::wake_processes(int* kptr, int count) {
 
     // if not found, tell caller that 0 processes were awoken
     if(!wq) return 0;
-
+    
     // otherwise, try waking 'count' processes;
     return wq->wake_some(count);
 }
