@@ -523,6 +523,9 @@ int proc::syscall_fork(regstate* regs) {
     // protect access to pgtable
     spinlock_guard pgtable_guard(pgtable_lock);
 
+    // protect shared memory segments
+    spinlock_guard pg_lock(pg_->lock_);
+
     proc_group* pg;
     pid_t child_pid;
     pid_t j;
@@ -583,7 +586,24 @@ int proc::syscall_fork(regstate* regs) {
 
     // copy the parent process' user-accessible memory
     for (vmiter it(this, 0); it.low(); it.next()) {
-        if (it.user() && it.pa() != CONSOLE_ADDR) {
+        // don't duplicate shared memory segments
+        if(pg_->get_shared_mem_seg_id(it.va()) > 0) {
+            if(vmiter(p, it.va()).try_map(it.pa(), it.perm()) < 0) {
+                goto bad_fork_cleanup_childproc;
+            }
+            continue;
+        }
+        
+        // don't duplicate console page
+        if (it.pa() == CONSOLE_ADDR) {
+            if(vmiter(p, it.va()).try_map(CONSOLE_ADDR, it.perm()) < 0) {
+                goto bad_fork_cleanup_childproc;
+            }
+            continue;
+        }
+
+        // copy regular user pages
+        if (it.user()) {
             // allocate new page
             void* new_page = kalloc(PAGESIZE);
             // map page's physical address to a virtual address
@@ -594,10 +614,17 @@ int proc::syscall_fork(regstate* regs) {
             }
             // copy parent's page
             memcpy(new_page, it.kptr(), PAGESIZE);
-        } else if (it.pa() == CONSOLE_ADDR) {
-            if(vmiter(p, it.va()).try_map(CONSOLE_ADDR, it.perm()) < 0) {
-                goto bad_fork_cleanup_childproc;
-            }
+        }
+    }
+
+    // copy parent's shared memory segments
+    for(int shimd = 0; shimd < NSEGS; ++shimd) {
+        shared_mem_segment* sms = pg_->get_shared_mem_seg(shimd);
+        if(sms) {
+            auto irqs = sms->lock_.lock();
+            ++sms->ref;
+            p->pg_->sm_segs_[shimd] = sms;
+            sms->lock_.unlock(irqs);
         }
     }
 

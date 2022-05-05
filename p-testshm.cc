@@ -95,22 +95,26 @@ void process_main() {
     if(!shmaddr) assert(false);
 
 
-    // // unmaping shmid2 segment once works
-    // assert_eq(shmdt(shmaddr), 0);
-    // // unmaping shmid3 segment twice fails
-    // assert_eq(shmdt(shmaddr), -1);
+    // test that forking copies over segments
 
-    // shmid after shmdt is different
-
+    // allocate new segment
+    int shmid7 = shmget(IPC_PRIVATE);
+    assert_eq(shmid7, 2);
+    // map shared data
+    void* shared_data = shmat(shmid7, aligned_addr);
+    if(!shmaddr) assert(false);
+    // fork child
+    pid_t p = sys_fork();
+    if(p == 0) {
+        // assert that child has aceess to shared_data
+        int chshmid7 = shmget(shmid7);
+        assert_eq(chshmid7, shmid7);
+        void* chshared_data = shmat(shmid7, aligned_addr);
+        assert_eq(chshared_data, shared_data);
+        sys_exit(0);
+    }
 
 
     console_printf("testshm succeeded.\n");
     sys_exit(0);
 }
-
-/**
- * TESTS
- *  caling shmget passing IPC_PRIVATE returns new id
- *  caling shmget multiple times passing IPC_PRIVATE eventually returns -1
- * 
- */

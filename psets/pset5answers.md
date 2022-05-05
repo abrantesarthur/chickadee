@@ -57,6 +57,7 @@ Leave your name out of this file. Put collaboration notes and credit in
 
 - modifying sys_exit and sys_fork to accomodate shm
 - unamping shared_memory was a challenging. I had this assertion failure when freeing the physical range.
+- maintaining shared data acorss forks and exit was challenging
 
 ### How can we test?
 

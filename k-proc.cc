@@ -52,7 +52,7 @@ int proc_group::alloc_shared_mem_seg(size_t sz) {
 
     // look for free shared memory segment
     for(int i = 0; i < NSEGS; i++) {
-        if(sm_segs_[i].size == 0) {
+        if(!sm_segs_[i]) {
             segid = i;
             break;
         }
@@ -68,9 +68,18 @@ int proc_group::alloc_shared_mem_seg(size_t sz) {
     void* pa = kalloc(sz);
     if(!pa) return -1;
 
+    // allocate segment
+    shared_mem_segment* sms = knew<shared_mem_segment>();
+    if(!sms) {
+        kfree(pa);
+        return -1;
+    }
+    sms->ref = 1;
+    sms->size = sz;
+    sms->pa = pa;
+
     // claim segment
-    sm_segs_[segid].size = sz;
-    sm_segs_[segid].pa = pa;
+    sm_segs_[segid] = sms;
 
     return segid;
 }
@@ -85,12 +94,12 @@ int proc_group::get_shared_mem_seg_id(int id) {
     if( id < 0 || id >= NSEGS) return -1;
 
     // make sure shared memory segment is allocated
-    if(sm_segs_[id].size == 0) return -1;
+    if(!sm_segs_[id]) return -1;
 
     return id;
 }
 
-// proc_group::get_shared_mem_seg_id(id)
+// proc_group::get_shared_mem_seg_id(va)
 //    Looks for memory segment with virtual addrss
 //    'va' and returns its id
 int proc_group::get_shared_mem_seg_id(uintptr_t va) {
@@ -98,7 +107,7 @@ int proc_group::get_shared_mem_seg_id(uintptr_t va) {
 
     // look for specified shared memory segment
     for(int i = 0; i < NSEGS; i++) {
-        if(sm_segs_[i].va == va) {
+        if(sm_segs_[i] && sm_segs_[i]->va == va) {
             return i;
         }
     }
@@ -111,28 +120,7 @@ int proc_group::get_shared_mem_seg_id(uintptr_t va) {
 shared_mem_segment* proc_group::get_shared_mem_seg(int id) {
     assert(lock_.is_locked());
     if(get_shared_mem_seg_id(id) < 0) return 0;
-    return &sm_segs_[id];
-}
-
-// proc_group::alloc_shared_mem_seg(id)
-//    frees a shared memory segment with id 'id'
-int proc_group::free_shared_mem_seg(int id) {
-    assert(lock_.is_locked());
-
-    // make sure segment exists
-    shared_mem_segment* sms = get_shared_mem_seg(id);
-    if(!sms) return -1;
-
-    // assert memory segment is allocated
-    if(!sms->size || !sms->pa || !sms->va) return -1;
-
-    // free segment memory
-    sms->pa = 0;
-    sms->size = 0;
-    sms->va = 0;
-
-    // success
-    return id;
+    return sm_segs_[id];
 }
 
 // proc_group::get_shared_mem_seg_sz(id)
@@ -144,7 +132,7 @@ size_t proc_group::get_shared_mem_seg_sz(int id) {
     
     if(id_ < 0) return 0;
 
-    return sm_segs_[id_].size;
+    return sm_segs_[id_]->size;
 }
 
 int proc_group::map_shared_mem_seg_at(int shmid, uintptr_t shmaddr) {
@@ -152,11 +140,13 @@ int proc_group::map_shared_mem_seg_at(int shmid, uintptr_t shmaddr) {
     // address must be page aligned
     assert(!(shmaddr & 0xFFF));
 
-
     // get segment
     shared_mem_segment* sms = get_shared_mem_seg(shmid);
     if(!sms) return -1;
 
+    // this segment must not already be mapped
+    // TODO: not sure!
+    assert(!sms->va);
 
     // starting segment address
     char* smspa = reinterpret_cast<char*>(sms->pa);
@@ -170,8 +160,6 @@ int proc_group::map_shared_mem_seg_at(int shmid, uintptr_t shmaddr) {
         
         // try mapping
         if(vmiter(this, it.va()).try_map(smspa, PTE_PWU) < 0) return -1;
-
-        log_printf("mapped va %p to pa %p\n", it.va(), it.pa());
 
         // go to next page
         it += PAGESIZE;
@@ -188,24 +176,34 @@ int proc_group::map_shared_mem_seg_at(int shmid, uintptr_t shmaddr) {
 int proc_group::unmap_shared_mem_seg_at(uintptr_t shmaddr) {
     assert(lock_.is_locked());
 
-    // get segment id
-    log_printf("try unmap %p\n", shmaddr);
+    // get segme
     int segid = get_shared_mem_seg_id(shmaddr);
     if(segid < 0) return -1;
+    shared_mem_segment* sms = sm_segs_[segid];
 
+    // lock access to memory segment
+    spinlock_guard guard(sms->lock_);
 
-    char* smspa = reinterpret_cast<char*>(sm_segs_[segid].pa);
+    // assert memory segment is allocated
+    if(!sms->size || !sms->pa || !sms->va || !sms->ref) {
+        return -1;
+    }
 
-    // free segment
-    vmiter it(this, shmaddr);
-    assert(it.pa() == ka2pa(smspa));
-    size_t pages = sm_segs_[segid].size / PAGESIZE;
-    vmiter(this, it.va()).kfree_page_range(pages);
+    // decrease reference count
+    --sms->ref;
 
-    // free shared memory segment
-    if(free_shared_mem_seg(segid) < 0) return -1;
-
-    log_printf("succeed unmap %p\n\n", shmaddr);
+    // free segment if no other process cares about it
+    if(!sms->ref) {
+        vmiter it(this, shmaddr);
+        char* smspa = reinterpret_cast<char*>(sms->pa);
+        assert(it.pa() == ka2pa(smspa));
+        vmiter(this, it.va()).kfree_page_range(sms->size / PAGESIZE);
+        sms->pa = 0;
+        sms->size = 0;
+        sms->va = 0;
+        kfree(sms);
+        sm_segs_[segid] = nullptr;
+    }
 
     // success
     return 0;
@@ -215,10 +213,14 @@ int proc_group::unmap_all_shared_mem() {
     spinlock_guard g(lock_);
     // look for specified shared memory segment
     for(int i = 0; i < NSEGS; i++) {
-        if(sm_segs_[i].va) {
-            unmap_shared_mem_seg_at(sm_segs_[i].va);
+        if(sm_segs_[i]) {
+            if(unmap_shared_mem_seg_at(sm_segs_[i]->va) < 0) {
+                return -1;
+            }
         }
     }
+    // success
+    return 0;
 }
 
 
