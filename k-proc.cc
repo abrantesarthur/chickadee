@@ -147,8 +147,7 @@ int proc_group::map_shared_mem_seg_at(int shmid, uintptr_t shmaddr) {
     if(!sms) return -1;
 
     // this segment must not already be mapped
-    // TODO: not sure!
-    assert(!sms->va);
+    if(sms->va) return -1;
 
     // starting segment address
     char* smspa = reinterpret_cast<char*>(sms->pa);

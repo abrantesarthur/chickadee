@@ -21,7 +21,7 @@ void process_main() {
 
 
     // test shmat
-    char* aligned_addr = reinterpret_cast<char*>(
+    const char* aligned_addr = reinterpret_cast<const char*>(
         round_up(reinterpret_cast<uintptr_t>(end), PAGESIZE)
     );
 
@@ -103,6 +103,8 @@ void process_main() {
     // map shared data
     void* shared_data = shmat(shmid7, aligned_addr);
     if(!shared_data) assert(false);
+    int* d = reinterpret_cast<int*>(shared_data);
+    *d = 2;
     // fork child
     pid_t p = sys_fork();
     if(p == 0) {
@@ -111,10 +113,19 @@ void process_main() {
         assert_eq(chshmid7, shmid7);
         void* chshared_data = shmat(shmid7, aligned_addr);
         assert_eq(chshared_data, shared_data);
+
+        assert_eq(*d, 2);
+
+        sys_msleep(50);
+        // update child's view of the data
+        *d = 3;
+
         sys_exit(0);
     }
-
-
+    assert_eq(*d, 2);
+    sys_msleep(200);
+    // child update must be visible in the parent
+    assert_eq(*d, 3);
     console_printf("testshm succeeded.\n");
     sys_exit(0);
 }
