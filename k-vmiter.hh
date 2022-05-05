@@ -279,6 +279,10 @@ inline void vmiter::map(volatile void* kp, int perm) {
 inline void vmiter::kfree_page() {
     assert((va_ & (PAGESIZE - 1)) == 0);
     if (*pep_ & PTE_P) {
+        if(pa() == 0x12000) {
+            log_printf("kfree_page %p\n", pa());
+            log_printf("pep_ %d\n", *pep_);
+        }
         kfree(kptr<void*>());
     }
     *pep_ = 0;
@@ -287,13 +291,17 @@ inline void vmiter::kfree_page() {
 inline void vmiter::kfree_page_range(int count) {
     assert((va_ & (PAGESIZE - 1)) == 0);
     if (*pep_ & PTE_P) {
+        log_printf("kfree_page_range(%d) freed %p\n", count, pa());
         kfree(kptr<void*>());
     }
+    log_printf("kfree_page_range(%d) set perm at %p to zero\n", count, pa());
     *pep_ = 0;
+    log_printf("pep_ %d\n", *pep_);
     --count;
     while(count) {
         // go to next page
         find(va_ + PAGESIZE);
+        log_printf("kfree_page_range(%d) set perm at %p to zero\n", count, pa());
         *pep_ = 0;
         --count;
     }

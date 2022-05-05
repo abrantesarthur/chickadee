@@ -107,6 +107,9 @@ inline void pageset::freeblocks_erase(page* p, int o) {
 }
 
 inline void pageset::free(page* p) {
+     if(is_free(p)) {
+        log_printf("p->first() %p p->last() %p already free\n", p->first(), p->last());
+    }
     // catch double free
     assert_eq(is_free(p), false);
     set_status(p, pg_free);

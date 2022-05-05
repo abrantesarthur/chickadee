@@ -189,31 +189,23 @@ int proc_group::unmap_shared_mem_seg_at(uintptr_t shmaddr) {
     assert(lock_.is_locked());
 
     // get segment id
+    log_printf("try unmap %p\n", shmaddr);
     int segid = get_shared_mem_seg_id(shmaddr);
     if(segid < 0) return -1;
+
 
     char* smspa = reinterpret_cast<char*>(sm_segs_[segid].pa);
 
     // free segment
     vmiter it(this, shmaddr);
     assert(it.pa() == ka2pa(smspa));
-    log_printf("here\n");
     size_t pages = sm_segs_[segid].size / PAGESIZE;
     vmiter(this, it.va()).kfree_page_range(pages);
 
-    // // unmap segment
-    // for(vmiter it(this, shmaddr + PAGESIZE); pages_left > 0; it += PAGESIZE) { 
-    //     assert(it.pa() == ka2pa(smspa));
-    //     log_printf("here\n");
-    //     vmiter(this, it.va()).kfree_page();
-        
-    //     // go to next page
-    //     smspa += PAGESIZE;
-    //     pages_left = 0;
-    // }
-
     // free shared memory segment
     if(free_shared_mem_seg(segid) < 0) return -1;
+
+    log_printf("succeed unmap %p\n\n", shmaddr);
 
     // success
     return 0;
