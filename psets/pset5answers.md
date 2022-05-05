@@ -51,13 +51,16 @@ Leave your name out of this file. Put collaboration notes and credit in
 - `u-lib.hh` contains user accessible `sys_futex`
 - `kernel.cc` contains `syscall_futex` function
 - `p-testfutex.cc` contains test code
-- `kernel.hh` and `k-proc.cc` memory segments
+- `kernel.hh` and `k-proc.cc`shared memory segment implementations
 
 ### Challenges
+
+- modifying sys_exit and sys_fork to accomodate shm
 
 ### How can we test?
 
 - run `make run-testfutex`
+- run `make run-testshm`
 
 ## Grading notes
 

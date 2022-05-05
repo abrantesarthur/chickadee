@@ -90,6 +90,7 @@ class vmiter {
 
     // Free mapped page and clear mapping. Like `kfree(kptr()); map(0, 0)`
     inline void kfree_page();
+    inline void kfree_page_range(int count);
 
   private:
     static constexpr int initial_lbits = PAGEOFFBITS + 3 * PAGEINDEXBITS;
@@ -281,6 +282,21 @@ inline void vmiter::kfree_page() {
         kfree(kptr<void*>());
     }
     *pep_ = 0;
+}
+
+inline void vmiter::kfree_page_range(int count) {
+    assert((va_ & (PAGESIZE - 1)) == 0);
+    if (*pep_ & PTE_P) {
+        kfree(kptr<void*>());
+    }
+    *pep_ = 0;
+    --count;
+    while(count) {
+        // go to next page
+        find(va_ + PAGESIZE);
+        *pep_ = 0;
+        --count;
+    }
 }
 
 inline ptiter::ptiter(const proc* p)

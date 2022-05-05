@@ -758,6 +758,9 @@ void proc::syscall_exit(int status) {
             syscall_close(fd);
         }
 
+        // unmap process' shared memory
+        pg_->unmap_all_shared_mem();
+
         // free process' user-acessible memory
         kfree_mem(this);
 

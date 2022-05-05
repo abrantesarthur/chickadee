@@ -62,7 +62,7 @@ int proc_group::alloc_shared_mem_seg(size_t sz) {
     if(segid < 0) return -1;
 
     // round size up to multiple of PAGESIZE
-    sz = round_up(sz, PAGESIZE);
+    sz = !sz ? PAGESIZE : round_up(sz, PAGESIZE);
 
     // allocate segment memory
     void* pa = kalloc(sz);
@@ -71,8 +71,6 @@ int proc_group::alloc_shared_mem_seg(size_t sz) {
     // claim segment
     sm_segs_[segid].size = sz;
     sm_segs_[segid].pa = pa;
-
-    log_printf("allocated pa %p\n", pa);
 
     return segid;
 }
@@ -163,20 +161,18 @@ int proc_group::map_shared_mem_seg_at(int shmid, uintptr_t shmaddr) {
     // starting segment address
     char* smspa = reinterpret_cast<char*>(sms->pa);
 
-    log_printf("smspa: %p\n", smspa);
-
     size_t pages_left = sms->size / PAGESIZE;
 
     // map segment
     for(vmiter it(this, shmaddr); pages_left > 0;) {
-        // make sure we are not overflowing virtual memory
-        if(it.va() >= MEMSIZE_VIRTUAL) return -1;
+        // make sure we are not mapping last virtual memory page
+        if(it.va() >= MEMSIZE_VIRTUAL - PAGESIZE) return -1;
         
         // try mapping
         if(vmiter(this, it.va()).try_map(smspa, PTE_PWU) < 0) return -1;
 
         log_printf("mapped va %p to pa %p\n", it.va(), it.pa());
-        
+
         // go to next page
         it += PAGESIZE;
         smspa += PAGESIZE;
@@ -197,23 +193,40 @@ int proc_group::unmap_shared_mem_seg_at(uintptr_t shmaddr) {
     if(segid < 0) return -1;
 
     char* smspa = reinterpret_cast<char*>(sm_segs_[segid].pa);
-    size_t pages_left = sm_segs_[segid].size / PAGESIZE;
 
-    // unmap segment
-    for(vmiter it(this, shmaddr); pages_left > 0; it += PAGESIZE) { 
-        assert(it.pa() == ka2pa(smspa));
-        vmiter(this, it.va()).kfree_page();
+    // free segment
+    vmiter it(this, shmaddr);
+    assert(it.pa() == ka2pa(smspa));
+    log_printf("here\n");
+    size_t pages = sm_segs_[segid].size / PAGESIZE;
+    vmiter(this, it.va()).kfree_page_range(pages);
+
+    // // unmap segment
+    // for(vmiter it(this, shmaddr + PAGESIZE); pages_left > 0; it += PAGESIZE) { 
+    //     assert(it.pa() == ka2pa(smspa));
+    //     log_printf("here\n");
+    //     vmiter(this, it.va()).kfree_page();
         
-        // go to next page
-        smspa += PAGESIZE;
-        --pages_left;
-    }
+    //     // go to next page
+    //     smspa += PAGESIZE;
+    //     pages_left = 0;
+    // }
 
     // free shared memory segment
     if(free_shared_mem_seg(segid) < 0) return -1;
 
     // success
     return 0;
+}
+
+int proc_group::unmap_all_shared_mem() {
+    spinlock_guard g(lock_);
+    // look for specified shared memory segment
+    for(int i = 0; i < NSEGS; i++) {
+        if(sm_segs_[i].va) {
+            unmap_shared_mem_seg_at(sm_segs_[i].va);
+        }
+    }
 }
 
 

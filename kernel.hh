@@ -173,6 +173,7 @@ struct proc_group {
     size_t get_shared_mem_seg_sz(int id);
     int map_shared_mem_seg_at(int shmid, uintptr_t shmaddr);
     int unmap_shared_mem_seg_at(uintptr_t shmaddr);
+    int unmap_all_shared_mem();
 };
 
 struct proc_loader {
