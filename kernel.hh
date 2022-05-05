@@ -100,6 +100,8 @@ struct __attribute__((aligned(4096))) proc {
     pid_t syscall_texit(int status);
     int syscall_futex(uintptr_t addr, int futex_op, int val);
     int syscall_shmget(int key, size_t size);
+    uintptr_t syscall_shmat(int shmid, uintptr_t shmaddr);
+    int syscall_shmdt(uintptr_t shmaddr);
 
 
     // buddy allocator test syscalls
@@ -134,6 +136,7 @@ extern futex_table ftable;
 struct shared_mem_segment {
     size_t size = 0;        // segment size (at least PAGESIZE)
     void* pa = 0;           // segment starting physical address
+    uintptr_t va = 0;       // segment starting virtual address
 };
 
 // Process group (i.e., Process) descriptor type
@@ -163,7 +166,13 @@ struct proc_group {
     void remove_child(proc_group* pg);
     bool is_zombie();
     int alloc_shared_mem_seg(size_t size);
-    int get_shared_mem_seg(int id);
+    int free_shared_mem_seg(int id);
+    shared_mem_segment* get_shared_mem_seg(int id);
+    int get_shared_mem_seg_id(int id);
+    int get_shared_mem_seg_id(uintptr_t va);
+    size_t get_shared_mem_seg_sz(int id);
+    int map_shared_mem_seg_at(int shmid, uintptr_t shmaddr);
+    int unmap_shared_mem_seg_at(uintptr_t shmaddr);
 };
 
 struct proc_loader {

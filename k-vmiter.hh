@@ -15,6 +15,7 @@ class vmiter {
     // Initialize a `vmiter` for `pt`, with initial virtual address `va`
     inline vmiter(x86_64_pagetable* pt, uintptr_t va);
     inline vmiter(const proc* p, uintptr_t va);
+    inline vmiter(const proc_group* pg, uintptr_t va);
 
     // ADDRESS QUERIES
     // Return current virtual address
@@ -168,6 +169,9 @@ inline vmiter::vmiter(x86_64_pagetable* pt, uintptr_t va)
 }
 inline vmiter::vmiter(const proc* p, uintptr_t va)
     : vmiter(p->pg_->pagetable_, va) {
+}
+inline vmiter::vmiter(const proc_group* pg, uintptr_t va)
+    : vmiter(pg->pagetable_, va) {
 }
 inline uintptr_t vmiter::va() const {
     return va_;

@@ -484,6 +484,16 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
             return syscall_shmget(key, size);
         }
 
+        case SYSCALL_SHMAT: {
+            int shmid = regs->reg_rdi;
+            uintptr_t shmaddr = regs->reg_rsi;
+            return syscall_shmat(shmid, shmaddr);
+        }
+
+        case SYSCALL_SHMDT: {
+            return syscall_shmdt(regs->reg_rdi);
+        }
+
         default:
             // no such system call
             log_printf("%d: no such system call %u\n", id_, regs->reg_rax);
@@ -1210,6 +1220,7 @@ bool proc::is_address_user_accessible(uintptr_t addr, size_t len) {
     if(!addr) {
         return false;
     }
+
     vmiter it(this, addr);
     uintptr_t init_va = it.va();
     for(; it.va() < (init_va + len + 1) && it.va() < MEMSIZE_VIRTUAL; it += 1) {
@@ -1582,5 +1593,31 @@ int proc::syscall_shmget(int key, size_t size) {
     }
 
     // return previously allocated segment
-    return pg_->get_shared_mem_seg(key);
+    return pg_->get_shared_mem_seg_id(key);
+}
+
+
+uintptr_t proc::syscall_shmat(int shmid, uintptr_t shmaddr) {
+    spinlock_guard guard(pg_->lock_);
+
+    // shmaddr must be page-aligned and can't be null
+    if(!shmaddr || shmaddr & 0xFFF) return 0;
+
+    // assert shmaddr is not already mapped to some segment
+    if (pg_->get_shared_mem_seg_id(shmaddr) != -1) return -1;
+
+    // get size of the segment
+    size_t segsz = pg_->get_shared_mem_seg_sz(shmid);
+    if(!segsz) return 0;
+    
+    // map shmaddr to the segment
+    if(pg_->map_shared_mem_seg_at(shmid, shmaddr) < 0) return 0;
+
+    // success
+    return shmaddr;
+}
+
+int proc::syscall_shmdt(uintptr_t shmaddr) {
+    spinlock_guard guard(pg_->lock_);
+    return pg_->unmap_shared_mem_seg_at(shmaddr);
 }

@@ -63,14 +63,17 @@ static void test1() {
 void process_main() {
 
     // TODO: this returns a segment with size PAGESIZE
-    int segid = shmget(IPC_PRIVATE, 1);
-    
+    int shmid = shmget(IPC_PRIVATE, 1);
 
-    console_printf("segid: %d\n", segid);
+    char* a = reinterpret_cast<char*>(
+        round_up(reinterpret_cast<uintptr_t>(end), PAGESIZE)
+    );
 
-    segid = shmget(1);
+    void* shmaddr = shmat(shmid, a);
 
-    console_printf("segid: %d\n", segid);
+    shmdt(shmaddr);
+
+    console_printf("segid: %d\n", shmid);
 
     sys_exit(0);
 }

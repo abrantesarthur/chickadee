@@ -33,3 +33,5 @@
 
 - `shmget`
   add support for flags
+- `shmat`
+  add support for non-null `shmaddr`

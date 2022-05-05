@@ -62,9 +62,7 @@ int proc_group::alloc_shared_mem_seg(size_t sz) {
     if(segid < 0) return -1;
 
     // round size up to multiple of PAGESIZE
-    if(sz < PAGESIZE || (sz % PAGESIZE) != 0) {
-        sz += PAGESIZE - (sz % PAGESIZE);
-    }
+    sz = round_up(sz, PAGESIZE);
 
     // allocate segment memory
     void* pa = kalloc(sz);
@@ -74,13 +72,15 @@ int proc_group::alloc_shared_mem_seg(size_t sz) {
     sm_segs_[segid].size = sz;
     sm_segs_[segid].pa = pa;
 
+    log_printf("allocated pa %p\n", pa);
+
     return segid;
 }
 
-
-// proc_group::get_shared_mem_seg(id)
+// proc_group::get_shared_mem_seg_id(id)
 //    Looks for memory segment with 'id' identifier
-int proc_group::get_shared_mem_seg(int id) {
+//    and returns its id
+int proc_group::get_shared_mem_seg_id(int id) {
     assert(lock_.is_locked());
 
     // a segment id is simply its index
@@ -90,6 +90,130 @@ int proc_group::get_shared_mem_seg(int id) {
     if(sm_segs_[id].size == 0) return -1;
 
     return id;
+}
+
+// proc_group::get_shared_mem_seg_id(id)
+//    Looks for memory segment with virtual addrss
+//    'va' and returns its id
+int proc_group::get_shared_mem_seg_id(uintptr_t va) {
+    assert(lock_.is_locked());
+
+    // look for specified shared memory segment
+    for(int i = 0; i < NSEGS; i++) {
+        if(sm_segs_[i].va == va) {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+// proc_group::get_shared_mem_seg_id(id)
+//    Looks for memory segment with 'id' identifier
+shared_mem_segment* proc_group::get_shared_mem_seg(int id) {
+    assert(lock_.is_locked());
+    if(get_shared_mem_seg_id(id) < 0) return 0;
+    return &sm_segs_[id];
+}
+
+// proc_group::alloc_shared_mem_seg(id)
+//    frees a shared memory segment with id 'id'
+int proc_group::free_shared_mem_seg(int id) {
+    assert(lock_.is_locked());
+
+    // make sure segment exists
+    shared_mem_segment* sms = get_shared_mem_seg(id);
+    if(!sms) return -1;
+
+    // assert memory segment is allocated
+    if(!sms->size || !sms->pa || !sms->va) return -1;
+
+    // free segment memory
+    sms->pa = 0;
+    sms->size = 0;
+    sms->va = 0;
+
+    // success
+    return id;
+}
+
+// proc_group::get_shared_mem_seg_sz(id)
+//    Returns the size of segment with id 'id' or 0 id is invalid.
+size_t proc_group::get_shared_mem_seg_sz(int id) {
+    assert(lock_.is_locked());
+
+    int id_ = get_shared_mem_seg_id(id);
+    
+    if(id_ < 0) return 0;
+
+    return sm_segs_[id_].size;
+}
+
+int proc_group::map_shared_mem_seg_at(int shmid, uintptr_t shmaddr) {
+    assert(lock_.is_locked());
+    // address must be page aligned
+    assert(!(shmaddr & 0xFFF));
+
+
+    // get segment
+    shared_mem_segment* sms = get_shared_mem_seg(shmid);
+    if(!sms) return -1;
+
+
+    // starting segment address
+    char* smspa = reinterpret_cast<char*>(sms->pa);
+
+    log_printf("smspa: %p\n", smspa);
+
+    size_t pages_left = sms->size / PAGESIZE;
+
+    // map segment
+    for(vmiter it(this, shmaddr); pages_left > 0;) {
+        // make sure we are not overflowing virtual memory
+        if(it.va() >= MEMSIZE_VIRTUAL) return -1;
+        
+        // try mapping
+        if(vmiter(this, it.va()).try_map(smspa, PTE_PWU) < 0) return -1;
+
+        log_printf("mapped va %p to pa %p\n", it.va(), it.pa());
+        
+        // go to next page
+        it += PAGESIZE;
+        smspa += PAGESIZE;
+        --pages_left;
+    }
+
+    sms->va = shmaddr;
+
+    // success 
+    return 0;
+}
+
+int proc_group::unmap_shared_mem_seg_at(uintptr_t shmaddr) {
+    assert(lock_.is_locked());
+
+    // get segment id
+    int segid = get_shared_mem_seg_id(shmaddr);
+    if(segid < 0) return -1;
+
+    char* smspa = reinterpret_cast<char*>(sm_segs_[segid].pa);
+    size_t pages_left = sm_segs_[segid].size / PAGESIZE;
+
+    // unmap segment
+    for(vmiter it(this, shmaddr); pages_left > 0; it += PAGESIZE) { 
+        assert(it.pa() == ka2pa(smspa));
+        vmiter(this, it.va()).kfree_page();
+        
+        // go to next page
+        smspa += PAGESIZE;
+        --pages_left;
+    }
+
+    // free shared memory segment
+    if(free_shared_mem_seg(segid) < 0) return -1;
+
+    // success
+    return 0;
 }
 
 
