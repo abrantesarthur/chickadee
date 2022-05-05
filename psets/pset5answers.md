@@ -35,47 +35,53 @@ Leave your name out of this file. Put collaboration notes and credit in
 
 ## Project
 
-- `syscall_futex`
-
-- `sys_futex`
-
-  This is the user side of things. It only calls syscall_futex if necessary. In other words, it actually checks the address before calling syscall_futex. Syscall_futex checks the address again.
-
 ### Goal
+
+The goal of my project was to enable userspace code to synchronize threads and processes efficiently and with minimum kernel involvement. I accomplished this by using mutexes, futexes, and shared memory segments.
 
 ### Design
 
+The entrypoint for an userspace code trying to accomplish synchronization is the `u-mutex.hh` file. It defines a `struct mutex` definition that users can use to establish critical areas. This mutex implements locking and unlocking primitives with the help of a futex and of shared memory segments. More specifically, the lock (i.e., `mutex::atom_`) is a pointer to a shared memory region which children have access to after forks so the locking semantics work. If a proc tries grabbing the lock when it's already held by another process, it uses a futex to sleep. Then, when the process having the lock decides to release it, it wakes up the sleeping child through the futex. This works because, although the two processes have separate address spaces, they both have mappings to the same underlying `mutex::atom_`.
+
 ### Code
 
-- `u-mutex.hh` and `u-mutex.cc` contains user-accessible mutex based on futex
-- `u-lib.hh` contains user accessible `sys_futex`
-- `kernel.cc` contains `syscall_futex` function
-- `p-testfutex.cc` contains test code
-- `kernel.hh` and `k-proc.cc`shared memory segment implementations
+- `u-mutex.hh` and `u-mutex.cc`
+
+  contains user-accessible mutex based on futex
+
+- `k-futex.hh` and `k-futex.cc`
+
+  contain definitions of a futex table with mappings from a futex (i.e., physical address) and a wait queue of processes that care about it
+
+- `kernel.hh` and `k-proc.cc`
+
+  `proc_group`'s shared memory segment definition and implementations
+
+- `u-lib.hh`, `u-shm.hh`, and `u-shm.cc`
+
+  contains entry points to the `syscall_futex`, `syscall_shmget`, `syscall_shmat`, and `syscall_shmdt` system calls
+
+- `kernel.cc`
+
+  contains implementations of the `syscall_futex`, `syscall_shmget`, `syscall_shmat`, and `syscall_shmdt` system calls.
+
+  It also contains modifications in `syscall_fork` and `syscall_exit` to support shared memory segments.
+
+- `p-testmutex.cc`
+  mutex testing code
+- `p-testfutex.cc`
+  futex testing code
+- `p-testshm.cc`
+  shared memory testing code
 
 ### Challenges
 
-- modifying sys_exit and sys_fork to accomodate shm
-- unamping shared_memory was a challenging. I had this assertion failure when freeing the physical range.
-- maintaining shared data acorss forks and exit was challenging
+- modifying `syscall_fork` and `syscall_exit` to accomodate shared memory segments was the most challengingg part. One cool thing is that this really stressed my buddy-allocator's assertions. For example, I faced double frees all the time. Overall, synchronizing the allocation, copying, and freeing of shared memory segments across different children was difficult.
 
 ### How can we test?
 
-- run `make run-testfutex`
-- run `make run-testshm`
+- run `make run-testmutex` to test mutexes
+- run `make run-testshm` to test shared memory segments
+- run `make run-testfutex` to test futexes
 
 ## Grading notes
-
-## Questions
-
-1. How should we implement sleeping behavior? Which thread in the parent process should be awaken by the child? Any sleeping thread or a specific thread?
-2. Why am I getting a protection fault when cpu 1 tries accessing a member of the pg\_ in line 117 of k-cpu.cc?
-
-## To do
-
-- update fork to handle shared memory segments
-- update kill_zombie to handle shared memory segments
-- mark idle tasks and process groups in `refresh`
-- protect `proct_group::pagetable_` and `fd_table`
-- Protect `proc_group::ppid` with `pgtable_lock` instead of `ptable_lock` and add to
-  synchronization invariatns

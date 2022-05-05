@@ -12,8 +12,8 @@ mutex::mutex() {
     assert_eq(shmaddr_, shared_addr);
 
     // set futex
-    futex_ = reinterpret_cast<std::atomic<int>*>(shmaddr_);
-    std::atomic_store(futex_, 0);
+    atom_ = reinterpret_cast<std::atomic<int>*>(shmaddr_);
+    std::atomic_store(atom_, 0);
 }
 
 void mutex::destroy() {
@@ -21,7 +21,7 @@ void mutex::destroy() {
 }
 
 void mutex::lock() {
-    int c = compare_exchange_strong(futex_, 0, 1);
+    int c = compare_exchange_strong(atom_, 0, 1);
 
     // if we grabbed the lock, return without blocking
     if(c == 0) return;
@@ -29,19 +29,19 @@ void mutex::lock() {
     // othwerwise, block until lock is free
     do {
         // signal that we are waiting for the lock
-        if(c == 2 || compare_exchange_strong(futex_, 1, 2) != 0) {
+        if(c == 2 || compare_exchange_strong(atom_, 1, 2) != 0) {
             // block until the lock is freed
-            sys_futex(futex_, FUTEX_WAIT, 2);
+            sys_futex(atom_, FUTEX_WAIT, 2);
         }
-        // we get here if futex_ becomes 0. Hence, we try grabbing it again.
-    } while((c = compare_exchange_strong(futex_, 0, 2)) != 0);
+        // we get here if atom_ becomes 0. Hence, we try grabbing it again.
+    } while((c = compare_exchange_strong(atom_, 0, 2)) != 0);
     
     // wet get here if we grabbed the lock in the while loop
 }
 
 void mutex::unlock() {
-    if(std::atomic_fetch_sub(futex_, 1) != 1) {
-        std::atomic_store(futex_, 0);
-        sys_futex(futex_, FUTEX_WAKE, 1);
+    if(std::atomic_fetch_sub(atom_, 1) != 1) {
+        std::atomic_store(atom_, 0);
+        sys_futex(atom_, FUTEX_WAKE, 1);
     }
 }

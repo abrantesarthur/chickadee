@@ -1585,7 +1585,6 @@ int proc::syscall_futex(uintptr_t uaddr, int futex_op, int val) {
         // if not found, try allocating a new entry
         if(!wq) wq = ftable.create_wait_queue(kptr);
 
-
         // if failed, instruct caller to try again
         if(!wq) return E_AGAIN;
 
