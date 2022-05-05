@@ -121,6 +121,7 @@ public:
 };
 
 #define NPROC 16
+#define NSEGS 16
 extern proc* ptable[NPROC];
 extern spinlock ptable_lock;
 extern proc_group* pgtable[NPROC];
@@ -130,12 +131,9 @@ extern futex_table ftable;
 #define PROCSTACK_SIZE 4096UL
 
 
-struct shared_memory_segment {
-    int key;            // segment identifier
-    size_t size;        // segment size (at least PAGESIZE)
-    void* pa;           // segment starting physical address
-
-    list_links link_;
+struct shared_mem_segment {
+    size_t size = 0;        // segment size (at least PAGESIZE)
+    void* pa = 0;           // segment starting physical address
 };
 
 // Process group (i.e., Process) descriptor type
@@ -156,15 +154,16 @@ struct proc_group {
     struct file_descriptor* fd_table_[FDS_COUNT] = {nullptr};
 
     // shared memory segments
-    list<shared_memory_segment, &shared_memory_segment::link_> sm_segs_;
+    shared_mem_segment sm_segs_[NSEGS];
 
-    // TODO: what else?
-    spinlock lock_;                                 // protects pagetable_, 
+    spinlock lock_;                                 // protects pagetable_, sm_segs_
     void init_fd_table();
     void add_proc(proc* p);
     void add_child(proc_group* pg);
     void remove_child(proc_group* pg);
     bool is_zombie();
+    int alloc_shared_mem_seg(size_t size);
+    int get_shared_mem_seg(int id);
 };
 
 struct proc_loader {

@@ -51,6 +51,7 @@ Leave your name out of this file. Put collaboration notes and credit in
 - `u-lib.hh` contains user accessible `sys_futex`
 - `kernel.cc` contains `syscall_futex` function
 - `p-testfutex.cc` contains test code
+- `kernel.hh` and `k-proc.cc` memory segments
 
 ### Challenges
 
@@ -67,6 +68,8 @@ Leave your name out of this file. Put collaboration notes and credit in
 
 ## To do
 
+- update fork to handle shared memory segments
+- update kill_zombie to handle shared memory segments
 - mark idle tasks and process groups in `refresh`
 - protect `proct_group::pagetable_` and `fd_table`
 - Protect `proc_group::ppid` with `pgtable_lock` instead of `ptable_lock` and add to

@@ -1575,13 +1575,12 @@ int proc::syscall_futex(uintptr_t uaddr, int futex_op, int val) {
 }
 
 int proc::syscall_shmget(int key, size_t size) {
-    log_printf("hELLO \n");
+    spinlock_guard guard(pg_->lock_);
+    if(key == IPC_PRIVATE) {
+        // allocate new memory segment
+        return pg_->alloc_shared_mem_seg(size);
+    }
+
+    // return previously allocated segment
+    return pg_->get_shared_mem_seg(key);
 }
-
-
-/**
- * TODO
- *      implement sys_futex
- *      implement user-side mutex using mmap that I also have to implement
- *
- */

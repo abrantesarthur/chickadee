@@ -42,6 +42,57 @@ void proc_group::add_proc(proc* p) {
     procs_.push_front(p);
 }
 
+// proc_group::alloc_shared_mem_seg(sz)
+//    Allocates a new memory segment of 'sz' rounded to a multiple
+//    of PAGESIZE. Returns -1 on error and segment index on success
+int proc_group::alloc_shared_mem_seg(size_t sz) {
+    assert(lock_.is_locked());
+
+    int segid = -1;
+
+    // look for free shared memory segment
+    for(int i = 0; i < NSEGS; i++) {
+        if(sm_segs_[i].size == 0) {
+            segid = i;
+            break;
+        }
+    }
+
+    // if not found, return error
+    if(segid < 0) return -1;
+
+    // round size up to multiple of PAGESIZE
+    if(sz < PAGESIZE || (sz % PAGESIZE) != 0) {
+        sz += PAGESIZE - (sz % PAGESIZE);
+    }
+
+    // allocate segment memory
+    void* pa = kalloc(sz);
+    if(!pa) return -1;
+
+    // claim segment
+    sm_segs_[segid].size = sz;
+    sm_segs_[segid].pa = pa;
+
+    return segid;
+}
+
+
+// proc_group::get_shared_mem_seg(id)
+//    Looks for memory segment with 'id' identifier
+int proc_group::get_shared_mem_seg(int id) {
+    assert(lock_.is_locked());
+
+    // a segment id is simply its index
+    if( id < 0 || id >= NSEGS) return -1;
+
+    // make sure shared memory segment is allocated
+    if(sm_segs_[id].size == 0) return -1;
+
+    return id;
+}
+
+
 // proc::proc()
 //    The constructor initializes the `proc` to empty.
 

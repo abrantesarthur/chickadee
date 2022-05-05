@@ -350,7 +350,7 @@ inline bool is_error(uintptr_t r)
 #define FUTEX_WAKE 2
 
 // shared memory flags
-#define IPC_PRIVATE 1
+#define IPC_PRIVATE 50        // careful: must be greater than NSEGS
 
 // CGA console printing
 

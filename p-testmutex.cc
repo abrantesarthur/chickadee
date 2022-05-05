@@ -62,7 +62,23 @@ static void test1() {
 
 void process_main() {
 
-    shmget(1, 1);
+    // TODO: this returns a segment with size PAGESIZE
+    int segid = shmget(IPC_PRIVATE, 1);
+    
+
+    console_printf("segid: %d\n", segid);
+
+    segid = shmget(1);
+
+    console_printf("segid: %d\n", segid);
 
     sys_exit(0);
 }
+
+/**
+ * TESTS
+ *  calling shmget passing its id returns its id
+ *  caling shmget passing IPC_PRIVATE returns new id
+ *  caling shmget multiple times passing IPC_PRIVATE eventually returns -1
+ * 
+ */

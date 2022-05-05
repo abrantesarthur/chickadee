@@ -28,3 +28,8 @@
 ## proc::syscall_execv
 
 - It assumes that it is called by a single-threaded process. Remove that assumption
+
+## u-shm.hh
+
+- `shmget`
+  add support for flags
