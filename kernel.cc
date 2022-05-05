@@ -788,11 +788,9 @@ void proc::syscall_exit(int status) {
         }
 
         // unmap process' shared memory
-        log_printf("P%d exit\n", pg_->pid_);
         pg_->unmap_all_shared_mem();
 
         // free process' user-acessible memory
-        log_printf("P%d kfree_mem\n", pg_->pid_);
         kfree_mem(this);
 
         // iterate over threads in parent process
