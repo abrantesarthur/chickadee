@@ -98,6 +98,10 @@ void* kalloc(size_t sz) {
 //    `ptr == nullptr`.
 void kfree(void* ptr) {
     spinlock_guard guard(page_lock);
+
+    if(ptr == reinterpret_cast<void*>(0xffff800000010000)) {
+        log_printf("HERE\n");
+    }
     
     if(!ptr) {
         return;
@@ -133,8 +137,18 @@ void kfree(void* ptr) {
 
 // kfree_mem(p)
 //      Free the user-accessible memory of pagetable 'pt'
-void kfree_mem(x86_64_pagetable* pt) {
+void kfree_mem(x86_64_pagetable* pt, proc_group* pg) {
+    int shmid;
     for(vmiter it(pt, 0); it.low(); it.next()) {
+        // don't free shared segment memory
+        // this is done by proc_group::unmap_all_shared_mem
+        auto irqs = pg->lock_.lock();
+        shmid = pg->get_shared_mem_seg_id(it.va());
+        pg->lock_.unlock(irqs);
+        if(shmid >= 0) {
+            continue;
+        }
+
         if(it.user() && it.pa() != CONSOLE_ADDR) {
             it.kfree_page();
         }
@@ -147,7 +161,7 @@ void kfree_mem(proc* p) {
     // assumes that process 'p' is no longer in the ptable
     // to avoid synchronization conflicts with memviewer
     assert(p && p->pg_ && p->pg_->pagetable_);
-    return kfree_mem(p->pg_->pagetable_);
+    return kfree_mem(p->pg_->pagetable_, p->pg_);
 }
 
 // kfree_pagetable

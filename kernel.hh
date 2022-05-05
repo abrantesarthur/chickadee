@@ -412,9 +412,9 @@ void* kalloc(size_t sz) __attribute__((malloc));
 //    `ptr == nullptr`.
 void kfree(void* ptr);
 
-// kfree_mem(pt)
+// kfree_mem(pt, pg)
 //    Free user-accessible memory of pagetable 'pt'
-void kfree_mem(x86_64_pagetable* pt);
+void kfree_mem(x86_64_pagetable* pt, proc_group* pg);
 
 // kfree_mem(p)
 //    Free user-accessible memory of process 'p'

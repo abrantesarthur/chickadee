@@ -81,6 +81,8 @@ int proc_group::alloc_shared_mem_seg(size_t sz) {
     // claim segment
     sm_segs_[segid] = sms;
 
+    log_printf("P%d allocated pa %p in seg %d\n", pid_, pa, segid);
+
     return segid;
 }
 
@@ -161,6 +163,8 @@ int proc_group::map_shared_mem_seg_at(int shmid, uintptr_t shmaddr) {
         // try mapping
         if(vmiter(this, it.va()).try_map(smspa, PTE_PWU) < 0) return -1;
 
+        log_printf("P%d mapped va %p to pa %p in seg %d\n", pid_, it.va(), smspa, shmid);
+
         // go to next page
         it += PAGESIZE;
         smspa += PAGESIZE;
@@ -194,6 +198,7 @@ int proc_group::unmap_shared_mem_seg_at(uintptr_t shmaddr) {
 
     // free segment if no other process cares about it
     if(!sms->ref) {
+        log_printf("P%d free va %p pa %p in seg %d\n", pid_, sms->va, sms->pa, segid);
         vmiter it(this, shmaddr);
         char* smspa = reinterpret_cast<char*>(sms->pa);
         assert(it.pa() == ka2pa(smspa));
@@ -203,6 +208,8 @@ int proc_group::unmap_shared_mem_seg_at(uintptr_t shmaddr) {
         sms->va = 0;
         kfree(sms);
         sm_segs_[segid] = nullptr;
+    } else {
+        log_printf("P%d did not free va %p pa %p in seg %d\n", pid_, sms->va, sms->pa, segid);
     }
 
     // success

@@ -587,10 +587,12 @@ int proc::syscall_fork(regstate* regs) {
     // copy the parent process' user-accessible memory
     for (vmiter it(this, 0); it.low(); it.next()) {
         // don't duplicate shared memory segments
-        if(pg_->get_shared_mem_seg_id(it.va()) > 0) {
+        if(pg_->get_shared_mem_seg_id(it.va()) >= 0) {
+            log_printf("sys_fork don't duplicate va %p pa %p\n", it.va(), it.pa());
             if(vmiter(p, it.va()).try_map(it.pa(), it.perm()) < 0) {
                 goto bad_fork_cleanup_childproc;
             }
+            log_printf("sys_fork now child has va %p mapped to pa %p\n", vmiter(p, it.va()).va(), vmiter(p, it.va()).pa());
             continue;
         }
         
@@ -786,10 +788,11 @@ void proc::syscall_exit(int status) {
         }
 
         // unmap process' shared memory
-        log_printf("\nexit unmap\n");
+        log_printf("P%d exit\n", pg_->pid_);
         pg_->unmap_all_shared_mem();
 
         // free process' user-acessible memory
+        log_printf("P%d kfree_mem\n", pg_->pid_);
         kfree_mem(this);
 
         // iterate over threads in parent process
@@ -1364,7 +1367,7 @@ int proc::syscall_execv(uintptr_t program_name, const char* const* argv, size_t 
     set_pagetable(pt);
 
     // free old pagetable and user memory
-    kfree_mem(old_pt);
+    kfree_mem(old_pt, pg_);
     kfree_pagetable(old_pt);
     yield_noreturn();
 }

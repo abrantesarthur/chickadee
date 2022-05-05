@@ -291,7 +291,7 @@ inline void vmiter::kfree_page() {
 inline void vmiter::kfree_page_range(int count) {
     assert((va_ & (PAGESIZE - 1)) == 0);
     if (*pep_ & PTE_P) {
-        log_printf("kfree_page_range(%d) freed %p\n", count, pa());
+        log_printf("kfree_page_range(%d) freed %p\n", count, kptr<void*>());
         kfree(kptr<void*>());
     }
     log_printf("kfree_page_range(%d) set perm at %p to zero\n", count, pa());
