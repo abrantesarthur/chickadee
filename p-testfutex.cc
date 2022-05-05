@@ -214,6 +214,9 @@ static void test3() {
 void process_main() {
     assert_eq(sys_getppid(), 1);
 
+    mutex m;
+
+
     // test FUTEX_WAIT
 
     message("testing that FUTEX_WAIT works");

@@ -348,6 +348,9 @@ inline bool is_error(uintptr_t r)
 #define FUTEX_WAIT 1
 #define FUTEX_WAKE 2
 
+// shared memory flags
+#define IPC_PRIVATE 1
+
 // CGA console printing
 
 #define CONSOLE_COLUMNS 80

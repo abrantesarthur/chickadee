@@ -128,6 +128,15 @@ extern struct keyboard_console_vnode* kbd_cons_vnode;
 extern futex_table ftable;
 #define PROCSTACK_SIZE 4096UL
 
+
+struct shared_memory_segment {
+    int key;            // segment identifier
+    size_t size;        // segment size (at least PAGESIZE)
+    void* pa;           // segment starting physical address
+
+    list_links link_;
+};
+
 // Process group (i.e., Process) descriptor type
 struct proc_group {
     proc_group(pid_t pid, x86_64_pagetable* pt);
@@ -145,6 +154,9 @@ struct proc_group {
 
     struct file_descriptor* fd_table_[FDS_COUNT] = {nullptr};
 
+    // shared memory segments
+    list<shared_memory_segment, &shared_memory_segment::link_> sm_segs_;
+
     // TODO: what else?
     spinlock lock_;                                 // protects pagetable_, 
     void init_fd_table();
@@ -153,7 +165,6 @@ struct proc_group {
     void remove_child(proc_group* pg);
     bool is_zombie();
 };
-
 
 struct proc_loader {
     x86_64_pagetable* pagetable_;
