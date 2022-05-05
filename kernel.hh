@@ -99,6 +99,7 @@ struct __attribute__((aligned(4096))) proc {
     pid_t syscall_clone(regstate* regs);
     pid_t syscall_texit(int status);
     int syscall_futex(uintptr_t addr, int futex_op, int val);
+    int syscall_shmget(int key, size_t size);
 
 
     // buddy allocator test syscalls

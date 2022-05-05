@@ -61,20 +61,8 @@ static void test1() {
 }
 
 void process_main() {
-    assert_eq(sys_getppid(), 1);
 
-    mutex m;
+    shmget(1, 1);
 
-    pid_t p = sys_fork();
-    assert_ge(p, 0);
-
-    if(p == 0) {
-        m.lock();
-    }
-
-
-    // TODO: test that if a thread is killed by a parent, it is also removed from the waitqueue
-
-    console_printf("testfutex succeeded.\n");
     sys_exit(0);
 }

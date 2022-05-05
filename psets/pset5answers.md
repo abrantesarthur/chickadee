@@ -47,7 +47,7 @@ Leave your name out of this file. Put collaboration notes and credit in
 
 ### Code
 
-- `u-lib.cc` contains user-accessible futex-based synchronization primitives
+- `u-mutex.hh` and `u-mutex.cc` contains user-accessible mutex based on futex
 - `u-lib.hh` contains user accessible `sys_futex`
 - `kernel.cc` contains `syscall_futex` function
 - `p-testfutex.cc` contains test code

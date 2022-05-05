@@ -291,6 +291,7 @@ struct bitset_view {
 #define SYSCALL_WILDALLOC   135
 #define SYSCALL_LOGPROCS    136
 #define SYSCALL_FUTEX       137
+#define SYSCALL_SHMGET      138
 
 // System call error return values
 

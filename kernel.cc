@@ -478,6 +478,12 @@ uintptr_t proc::unsafe_syscall(regstate* regs) {
             return syscall_futex(uaddr, futex_op, val);
         }
 
+        case SYSCALL_SHMGET: {
+            int key = regs->reg_rdi;
+            size_t size = regs->reg_rsi;
+            return syscall_shmget(key, size);
+        }
+
         default:
             // no such system call
             log_printf("%d: no such system call %u\n", id_, regs->reg_rax);
@@ -1567,6 +1573,11 @@ int proc::syscall_futex(uintptr_t uaddr, int futex_op, int val) {
     // futex_op is invalid
     return E_INVAL;
 }
+
+int proc::syscall_shmget(int key, size_t size) {
+    log_printf("hELLO \n");
+}
+
 
 /**
  * TODO

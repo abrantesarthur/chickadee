@@ -2,6 +2,7 @@
 #define CHICKADEE_U_LIB_HH
 #include "lib.hh"
 #include "u-mutex.hh"
+#include "u-shm.hh"
 #include "x86-64.h"
 #include <atomic>
 #if CHICKADEE_KERNEL
