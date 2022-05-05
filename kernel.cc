@@ -1606,8 +1606,12 @@ uintptr_t proc::syscall_shmat(int shmid, uintptr_t shmaddr) {
     // shmaddr must be page-aligned and can't be null
     if(!shmaddr || shmaddr & 0xFFF) return 0;
 
-    // assert shmaddr is not already mapped to some segment
-    if (pg_->get_shared_mem_seg_id(shmaddr) != -1) return -1;
+    // return if shmaddr is already mapped shmid segment
+    int curr_shmid = pg_->get_shared_mem_seg_id(shmaddr);
+    if(curr_shmid == shmid) return shmaddr;
+
+    // assert shmaddr is not already mapped to another segment
+    if (curr_shmid != -1) return 0;
 
     // get size of the segment
     size_t segsz = pg_->get_shared_mem_seg_sz(shmid);
