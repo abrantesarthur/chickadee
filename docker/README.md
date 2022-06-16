@@ -1,119 +1,133 @@
-CS 61/161 Docker
-================
+# Chickadee OS
 
-> **tl;dr**:
-> * `docker build -t cs61:latest -f Dockerfile .` to build a Docker image
-> * `docker system prune -a` to remove old Docker images
+This is Chickadee, a teaching operating system built for Harvard’s
+[CS 161].
 
-The [Docker][] container-based virtualization service lets you run a
-minimal CS 161 environment, including a virtual Linux host, on a Mac
-OS X or Windows host, without the overhead of a full virtual machine
-solution like [VMware Workstation][], [VMware Fusion][], or
-[VirtualBox][].
+## Mac OS X instructions
 
-It should be possible to do *all* CS 161 problem sets on CS 61 Docker.
-(However, you may prefer to set up a local environent.)
+You will need a crosscompiler and an installation of QEMU for Chickadee to
+run on Mac OS X. Follow these instructions:
 
-Advantages of Docker:
+1. Install [Homebrew](https://brew.sh/)
+2. Install Homebrew’s new GCC package: `brew install gcc@8`
+3. Install Homebrew’s QEMU: `brew install qemu`
+4. Tap [Sergio Benitez’s collection of cross-compilers](https://github.com/SergioBenitez/homebrew-osxct): brew tap SergioBenitez/osxct
+5. Install the `x86_64-unknown-linux-gnu` cross-compiler toolchain: `brew install x86_64-unknown-linux-gnu``
+6. Edit the file `config.mk` in your Chickadee directory to contain this:
 
-* Docker can start and stop virtual machines incredibly quickly.
-* Docker-based virtual machines are leaner and take less space on your
-  machine.
-* With Docker, you can easily *edit* your code in your home
-  *environment, but compile and run* it on a Linux host.
-
-Disadvantages of Docker:
-
-* Docker does not offer a full graphical environment. You will need to
-  run QEMU exclusively in the terminal.
-* Docker technology is less user-friendly than virtual machines.
-  You’ll have to type weird commands.
-* It will run slower.
-
-
-## Preparing CS 161 Docker
-
-To prepare to build your Docker environment:
-
-1.  Download and install [Docker][].
-
-2.  Clone a copy of the [chickadee repository][].
-
-3.  Change into the `chickadee/docker` directory.
-
-To build your Docker environment, run this command. It will take a couple
-minutes. You’ll want to re-run this command every time the Docker image
-changes, but later runs should be much faster since they’ll take advantage of
-your previous work.
-
-```shellsession
-$ docker build -t cs61:latest -f Dockerfile .
+```
+CCPREFIX=x86_64-unknown-linux-gnu-
+HOSTCC=gcc-8
+HOSTCXX=g++-8
 ```
 
-## Running Docker by script
+### Quickstart
 
-The Chickadee repository contains a `run-docker` script that
-provides good arguments and boots Docker into a view of the current
-directory.
+`make run` or `make run-PROGRAM`
 
-For example:
+### Shell
 
-```shellsession
-$ cd ~/chickadee
-$ ./run-docker
-cs61-user@a47f05ea5085:~/chickadee$ echo Hello, Linux
-Hello, Linux
-cs61-user@a47f05ea5085:~/chickadee$ exit
-exit
-$ 
-```
+Run `make run-sh` to start a Shell, which supports commands (e.g., `echo` and `cat`),
+redirections (i.e., `>` and `>&`), pipe (i.e., `|`), background (i.e., `&`) and much more.
 
-The script plonks you into a virtual machine! A prompt like
-`cs61-user@a47f05ea5085:~$` means that your terminal is connected to the VM.
-You can execute any commands you want. To escape from the VM, type Control-D
-or run the `exit` command.
+Play around :)
 
-The script assumes your Docker container is named `cs61:latest`, as it
-was above.
+## Make targets
 
+Run `make NCPU=N run` to run with `N` virtual CPUs (default is 2).
 
-### Running Docker by hand
+Run `make SAN=1 run` to run with sanitizers.
 
-If you don’t want to use the script, use a command like the following.
+Normally Chickadee’s debug log is written to `log.txt`. Run `make LOG=stdio run` to redirect the debug log to the standard output, or `make LOG=file:FILENAME run` to redirect it to `FILENAME`.
 
-```shellsession
-$ docker run -it --rm -v ~/chickadee:/home/cs61-user/chickadee cs61:latest
-```
+Run `make D=1 run` to ask QEMU to print verbose information about interrupts
+and CPU resets to the standard error. This setting will also cause QEMU to
+quit after encountering a [triple fault][] (normally it will reboot).
 
-Explanation:
+`make run-PROGRAM` runs `p-PROGRAM.cc` as the first non-init process. The
+default is `alloc`.
 
-* `docker run` tells Docker to start a new virtual machine.
-* `-it` says Docker should run interactively (`-i`) using a terminal (`-t`).
-* `--rm` says Docker should remove the virtual machine when it is done.
-* `-v LOCALDIR:LINUXDUR` says Docker should share a directory between your
-  host and the Docker virtual machine. Here, I’ve asked for the host’s
-  `~/chickadee` directory to be mapped inside the virtual machine onto the
-  `/home/cs61-user/chickadee` directory, which is the virtual machine
-  user’s `~/chickadee` directory.
-* `cs61:latest` names the Docker image to run (namely, the one you built).
+`make HALT=1 run-PROGRAM` should make QEMU exit once all processes are done.
 
-Here’s an example session:
+## Troubleshooting
 
-```shellsession
-$ docker run -it --rm -v ~/chickadee:/home/cs61-user/chickadee cs61:latest
-cs61-user@a15e6c4c8dbe:~$ ls
-cs61-lectures
-cs61-user@a15e6c4c8dbe:~$ echo "Hello, world"
-Hello, world
-cs61-user@a15e6c4c8dbe:~$ cs61-docker-version
-3
-cs61-user@a15e6c4c8dbe:~$ exit
-exit
-$ 
-```
+If you experience runtime errors involving `obj/libqemu-nograb.so.1`, put
+`QEMU_PRELOAD_LIBRARY=` in `config.mk`. This disables a shim we use that
+prevents QEMU from grabbing the mouse.
 
-[Docker]: https://docker.com/
-[VMware Workstation]: https://www.vmware.com/products/workstation-player.html
-[VMware Fusion]: https://www.vmware.com/products/fusion.html
-[VirtualBox]: https://www.virtualbox.org/
-[Chickadee repository]: https://github.com/cs161/chickadee/
+## Source files
+
+### Common files
+
+| File        | Description                 |
+| ----------- | --------------------------- |
+| `types.h`   | Type definitions            |
+| `lib.hh/cc` | Chickadee C library         |
+| `x86-64.h`  | x86-64 hardware definitions |
+| `elf.h`     | ELF64 structures            |
+
+### Boot loader
+
+| File          | Description               |
+| ------------- | ------------------------- |
+| `bootentry.S` | Boot loader entry point   |
+| `boot.cc`     | Boot loader main code     |
+| `boot.ld`     | Boot loader linker script |
+
+### Kernel core
+
+| File             | Description               |
+| ---------------- | ------------------------- |
+| `kernel.hh`      | Kernel declarations       |
+| `k-exception.S`  | Kernel entry points       |
+| `k-init.cc`      | Kernel initialization     |
+| `k-lock.hh`      | Kernel spinlock           |
+| `k-vmiter.hh/cc` | Page table iterators      |
+| `k-cpu.cc`       | Kernel `cpustate` type    |
+| `k-proc.cc`      | Kernel `proc` type        |
+| `kernel.cc`      | Kernel exception handlers |
+| `k-memviewer.cc` | Kernel memory viewer      |
+| `kernel.ld`      | Kernel linker script      |
+
+### Kernel libraries
+
+| File              | Description                     |
+| ----------------- | ------------------------------- |
+| `k-memrange.hh`   | Memory range type tracker       |
+| `k-hardware.cc`   | General hardware access         |
+| `k-devices.hh/cc` | Keyboard, console, memory files |
+| `k-apic.hh/cc`    | Interrupt controller hardware   |
+| `k-pci.hh`        | PCI bus hardware                |
+| `k-mpspec.cc`     | Boot-time configuration         |
+| `k-sanitizers.cc` | Sanitizer support               |
+
+### Processes
+
+| File             | Description                                     |
+| ---------------- | ----------------------------------------------- |
+| `u-lib.cc/hh`    | Process library and system call implementations |
+| `p-allocator.cc` | Allocator process                               |
+| `process.ld`     | Process binary linker script                    |
+
+### File system
+
+| File                 | Description                        |
+| -------------------- | ---------------------------------- |
+| `chickadeefs.hh`     | Defines chkfs (ChickadeeFS) layout |
+| `journalreplayer.cc` | Logic for replaying chkfs journals |
+
+## Build files
+
+The main output of the build process is a disk image,
+`chickadeeos.img`. QEMU “boots” off this disk image, but the image
+could conceivably boot on real hardware! The build process also
+produces other files that can be useful to examine.
+
+| File                         | Description                      |
+| ---------------------------- | -------------------------------- |
+| `obj/kernel.asm`             | Kernel assembly (with addresses) |
+| `obj/kernel.sym`             | Kernel defined symbols           |
+| `obj/p-allocator.asm`, `sym` | Same for process binaries        |
+
+[cs 161]: https://read.seas.harvard.edu/cs161/2020/
+[triple fault]: https://en.wikipedia.org/wiki/Triple_fault
